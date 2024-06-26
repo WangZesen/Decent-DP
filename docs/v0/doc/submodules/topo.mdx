@@ -1,0 +1,85 @@
+# topo
+
+## `class` Edge
+
+> `Edge` is a class that represents an decentralized communication in a graph.
+
+Suppose that there are $n$ workers participating in the communication. Denote the weights as $w_1,\cdots, w_n$, and the corresponding data (parameters) as $p_1, \cdots, p_n$.
+
+Then the results of the communication on the $i$-th worker will be:
+
+```math
+\hat{p}_i = w_i p_i + \frac{1}{n-1}\sum_{j\in[n]\backslash \{i\}} (1 - w_j) p_j
+```
+where $w_i$ indicates the weight of kept data of the $i$-th worker.
+
+### Constructor
+
+:::warning Arguments
+
+- **ranks** (*List[int]*) - The ranks of the nodes that the edge connects.
+- **weight** (*List[float]*) - The weight of the edge.
+- **group** (*ProcessGroup, optional*) - The process group that the communication will use, which will be handled and initialized by other utility class. Defaults to None.
+
+:::
+
+## `class` Topology
+
+> Base class for the topology of the decentralized communication graph.
+
+To define a new topology, it needs to override the `_get_topo_edges` method to return the edges of the graph.
+
+### Private attributes \{#topo-private-attr\}
+
+:::warning Attributes
+
+- **self._world_size** (*int*) - The total number of workers.
+- **self._rank** (*int*) - The rank of the current worker (in the range of `0` to `self._world_size-1`)
+- **self._local_world_size** (*int*) - The number of workers in the local node (assumed to be equal accorss all nodes).
+- **self._n_nodes** (*int*) - The number of nodes in the graph (`= self._world_size // self._local_world_size`).
+
+:::
+
+## `class` TopologyReg
+
+### Class methods
+
+#### `func` register
+
+> Decorator to register the topology class.
+
+Usage: Create a new topology class and register it with the decorator. It could make use of the [private attribute](#topo-private-attr) of the base class.
+
+```python
+@TopologyReg.register(<topo_name>)
+class ExampleTopology(Topology):
+    def _get_topo_edges(self) -> List[List[Edge]]:
+        ...
+```
+
+:::danger Note
+
+Currently, the graph needs to fulfill the following properties:
+- Every worker should participate in one and only one communication in each iteration (there is a function in the base class to check this property).
+- The weights of the edges should be non-negative and equal to avoid divergence.
+
+:::
+
+## `class` CompleteTopology
+
+> Complete topology where every worker (logically) communicates with every other worker, and the weights are all $1/N$.
+
+## `class` RingTopology
+
+> One-peer ring topology where $2k$-th worker communicates with $(2k+1)$-th worker in odd iterations and $2k$-th worker communicates with $(2k-1)$-th worker in even iterations.
+> <br/> The weights are all $1/2$.
+
+## `class` OnePeerExpTopology
+
+> One-peer exponential graph described in the paper ["Exponential Graph is Provably Efficient for Decentralized Deep Training"](https://arxiv.org/abs/2110.13363).
+> <br/> The weights are all $1/2$.
+
+## `class` ExpRingTopology
+
+> Alternating exponential ring graph, which is similar to the one-peer exponential graph but better utilizing the fast intra-node connections.
+

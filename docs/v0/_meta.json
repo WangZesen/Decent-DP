@@ -1,0 +1,17 @@
+[
+  {
+    "text": "Performance",
+    "link": "/performance/",
+    "activeMatch": "/performance/"
+  },
+  {
+    "text": "Setup",
+    "link": "/setup/",
+    "activeMatch": "/setup/"
+  },
+  {
+    "text": "Docs",
+    "link": "/doc/",
+    "activeMatch": "/doc/"
+  }
+]

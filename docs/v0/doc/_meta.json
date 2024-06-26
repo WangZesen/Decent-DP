@@ -1,0 +1,10 @@
+[
+    "index",
+    {
+        "type": "dir",
+        "name": "submodules",
+        "label": "Submodules",
+        "collapsible": true,
+        "overview": true
+    }
+]

@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "decent-dp"
+version = "0.0.2"
+authors = [
+  { name="Zesen Wang", email="zesen@kth.se" },
+]
+description = "An implementation of decentralized data parallel based on PyTorch"
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+license = {file = "LICENSE"}
+dependencies = [
+    "torch>=2.1.0",
+    "loguru>=0.7.0"
+]
+optional-dependencies = {"test" = [
+  "tqdm>=4.66.0"
+]}
+
+[project.urls]
+Homepage = "https://github.com/WangZesen/decent-dp"
+Documentation = "https://wangzesen.github.io/Decent-DP/"
+Issues = "https://github.com/WangZesen/decent-dp/issues"

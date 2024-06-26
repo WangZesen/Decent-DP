@@ -1,0 +1,109 @@
+# ddp
+
+## `type` OPTIM_FN_TYPE \{#optim-fn-type\}
+
+> Data type for the optimizer function.
+> <br/> The function should take a list of tuples of tensor and its name as input and return an optimizer.
+
+```python
+Callable[[List[Tuple[torch.Tensor, str]]], torch.optim.Optimizer]
+```
+
+## `type` LR_SCHEDULER_FN_TYPE \{#lr-scheduler-fn-type\}
+
+> Data type for the learning rate scheduler function.
+> <br/> The function should take an optimizer as input and return a learning rate scheduler
+
+```python
+Callable[[torch.optim.Optimizer], torch.optim.lr_scheduler.LRScheduler]
+```
+
+## `class` DecentralizedDataParallel
+
+> Decentralized data parallel wrapper for PyTorch module.
+
+### Constructor
+
+:::warning Arguments
+
+- **model** (*torch.nn.Module*) - PyTorch module to be distributed.
+- **optim_fn** (*[OPTIM_FN_TYPE](#optim-fn-type)*) - Function to create the optimizer, which takes a list of tuples of parameters and their names as input.
+- **lr_scheduler_fn** (*[LR_SCHEDULER_FN_TYPE](#lr-scheduler-fn-type), optional*) - Function to create the learning rate scheduler, which takes the optimizer as input. Defaults to None.
+- **topology** (*str, optional*) - Topology of the decentralized communication graph. Defaults to 'complete'.
+- **scaler** (*torch.cuda.amp.GradScaler, optional*) - Gradient scaler for mixed precision training. Defaults to None.
+- **param_as_bucket_view** (*bool, optional*) - Whether to use the parameter as a view of part of the continuous buffer. Defaults to True.
+- **sync_buffer_in_global_avg** (*bool, optional*) - Whether to synchronize the float buffers in the global average. Defaults to False.
+- **bucket_size_in_mb** (*int, optional*) - Size of the bucket in MB. Defaults to 25 MB.
+- **profile_mode** (*bool, optional*) - Whether to enable the profile mode. Defaults to False.
+- **local_world_size** (*int, optional*) - Provide the local world size if not using the environment variable. Defaults to None.
+
+:::
+
+### Public methods
+
+#### `func` train
+
+> Set the module in training mode. Same as the corresponding method of torch.nn.Module.
+
+:::warning Arguments
+
+- **eval** (*bool, optional*) - Whether to set the module in training mode. Defaults to True.
+
+:::
+
+#### `func` eval
+
+> Set the module in evaluation mode. Same as the corresponding method of torch.nn.Module.
+
+#### `func` parameters
+
+> Get the parameters of the model. Same as the corresponding method of torch.nn.Module.
+
+:::warning Arguments
+
+- **recurse** (*bool, optional*): Whether to get the parameters recursively. Defaults to True.
+
+:::
+
+:::info Returns
+
+- The iterator of the parameters (*Iterator[torch.nn.parameter.Parameter]*)
+
+:::
+
+#### `func` named_parameters
+
+> Get the parameters (and their names) of the model. Same as the corresponding method of torch.nn.Module.
+
+:::warning Arguments
+
+- **prefix** (*str, optional*): Defaults to ''.
+- **recurse** (*bool, optinal*): Defaults to True.
+- **remove_duplicate** (*bool, optinal*): Defaults to True.
+
+:::
+
+:::info Returns
+
+- The iterator of the parameters and their names (*Iterator[Tuple[str, torch.nn.parameter.Parameter]]*)
+
+:::
+
+#### `func` get_time_stats
+
+> The time statistics are collected only when the profile mode is enabled.
+
+:::info Returns
+
+- The time statistics. The keys are 'compute', 'non_overlap_comm', and 'iter', which stand for the computation time, non-overlapping communication time, and iteration time, respectively. (*Dict[str, deque]*)
+
+:::
+
+#### `func` reset_time_stats
+
+> Reset the time statistics
+
+#### `func` global_avg
+
+> Perform global average on the parameters (and buffers if sync_buffer_in_global_avg is True)
+
