@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-    <a href="https://github.com/WangZesen/Decent-DP">Documentation</a>
+    <a href="https://wangzesen.github.io/Decent-DP/">Documentation</a>
 </p>
 
 
