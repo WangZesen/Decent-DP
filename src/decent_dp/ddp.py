@@ -99,11 +99,12 @@ class DecentralizedDataParallel(Module):
         self._lr_schedulers: List[LRScheduler] = []
         if self._profile_mode:
             self._time_stats: Dict[str, deque] = {
-                'compute': deque(maxlen=1000),
-                'non_overlap_comm': deque(maxlen=1000),
-                'iter': deque(maxlen=1000)
+                'forward': deque(maxlen=100000),
+                'iter': deque(maxlen=100000)
             }
             self._iter_end: Optional[torch.cuda.Event] = None
+            self._fw_start: Optional[torch.cuda.Event] = None
+            self._fw_end: Optional[torch.cuda.Event] = None
 
         # initialize the topology
         self._topo = TopologyReg.registry[topology](self._local_world_size)
@@ -202,9 +203,9 @@ class DecentralizedDataParallel(Module):
                         if self._comm_events[i][0] is not None:
                             self._comm_events[i][1].synchronize()
                             non_overlap_comm += self._comm_events[i][0].elapsed_time(self._comm_events[i][1])
-                    self._time_stats['non_overlap_comm'].append(non_overlap_comm)
-                    self._time_stats['iter'].append(self._iter_end.elapsed_time(iter_end))
-                    self._time_stats['compute'].append(self._time_stats['iter'][-1] - self._time_stats['non_overlap_comm'][-1])
+                    # self._time_stats['non_overlap_comm'].append(non_overlap_comm)
+                    # self._time_stats['iter'].append(self._iter_end.elapsed_time(iter_end))
+                    # self._time_stats['compute'].append(self._time_stats['iter'][-1] - self._time_stats['non_overlap_comm'][-1])
                 self._iter_end = iter_end
 
     @torch.no_grad()
@@ -337,9 +338,26 @@ class DecentralizedDataParallel(Module):
                         group=edge.group,
                         async_op=True
                     )
-        with torch.autograd.profiler.record_function("DecentralizedDataParallel.forward"):
+
+        if self._model.training:
             self._step += 1
-            return self._model(*args, **kwargs)
+
+        with torch.autograd.profiler.record_function("DecentralizedDataParallel.forward"):
+            if self._model.training and self._profile_mode:
+                fw_start = torch.cuda.Event(enable_timing=True)
+                fw_start.record()
+                fw_start.synchronize()
+                if self._fw_start is not None:
+                    self._fw_end.synchronize()
+                    self._time_stats['forward'].append(self._fw_start.elapsed_time(self._fw_end))
+                    self._time_stats['iter'].append(self._fw_start.elapsed_time(fw_start))                
+                self._fw_start = fw_start
+            
+            output = self._model(*args, **kwargs)
+            if self._model.training and self._profile_mode:
+                self._fw_end = torch.cuda.Event(enable_timing=True)
+                self._fw_end.record()
+            return output
 
     def parameters(self, recurse: bool = True) -> Iterator[Parameter]:
         """Get the parameters of the model
@@ -376,9 +394,10 @@ class DecentralizedDataParallel(Module):
 
     def reset_time_stats(self):
         """Reset the time statistics"""
-        self._time_stats['compute'].clear()
-        self._time_stats['non_overlap_comm'].clear()
-        self._time_stats['iter'].clear()
+        for key in self._time_stats:
+            self._time_stats[key].clear()
+        self._fw_start = None
+        self._fw_end = None
 
     @torch.no_grad()
     def global_avg(self):
@@ -386,7 +405,7 @@ class DecentralizedDataParallel(Module):
         for op in self._comm_op:
             if op is not None:
                 op.wait()
-        self._comm_op = [None] * len(self._param_buckets)
+        self._comm_op = [None for _ in range(len(self._param_buckets))]
 
         torch._foreach_div_([x.data for x in self._params], self._world_size)
         dist.all_reduce_coalesced([x.data for x in self._params], op=dist.ReduceOp.SUM)
