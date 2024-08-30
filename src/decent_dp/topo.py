@@ -2,7 +2,7 @@ import math
 from loguru import logger
 import torch.distributed as dist
 from torch.distributed import ProcessGroup
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, cast
 from dataclasses import dataclass
 
 @dataclass
@@ -37,13 +37,13 @@ class Topology:
 
         # Create default group
         all_ranks = [i for i in range(self._world_size)]
-        self._registry['all'] = dist.new_group(all_ranks)
+        self._registry['all'] = cast(ProcessGroup, dist.new_group(all_ranks))
 
         for idx in range(len(all_edges)):
             for edge in all_edges[idx]:
                 identifier = str(edge.ranks)
                 if not (identifier in self._registry):
-                    self._registry[identifier] = dist.new_group(edge.ranks)
+                    self._registry[identifier] = cast(ProcessGroup, dist.new_group(edge.ranks))
                 edge.group = self._registry[identifier]
         
         for idx in range(len(all_edges)):
@@ -73,11 +73,11 @@ class Topology:
 
 
 class TopologyReg:
-    registry: Dict[str, Topology] = {}
+    registry: Dict[str, type[Topology]] = {}
 
     @classmethod
     def register(cls, name: str) -> Callable:
-        def _register(topology) -> Topology:
+        def _register(topology) -> type[Topology]:
             if name in cls.registry:
                 raise ValueError(f"Topology {name} is already registered")
             if not issubclass(topology, Topology):
@@ -98,7 +98,7 @@ class CompleteTopology(Topology):
 
 @TopologyReg.register('ring')
 class RingTopology(Topology):
-    def _get_topo_edges(self) -> List[List[Dict[str, Any]]]:
+    def _get_topo_edges(self) -> List[List[Edge]]:
         if self._world_size % 2 != 0:
             logger.error('Ring topology is not supported for odd world size')
             raise ValueError()
@@ -121,7 +121,7 @@ class RingTopology(Topology):
 
 @TopologyReg.register('one-peer-exp')
 class OnePeerExpTopology(Topology):
-    def _get_topo_edges(self) -> List[List[Dict[str, Any]]]:
+    def _get_topo_edges(self) -> List[List[Edge]]:
         rounds = round(math.log2(self._world_size))
         if self._world_size != 2 ** rounds:
             logger.error('Exponential topology is only supported for 2^x world size')
@@ -144,7 +144,7 @@ class OnePeerExpTopology(Topology):
 
 @TopologyReg.register('alternating-exp-ring')
 class ExpRingTopology(Topology):
-    def _get_topo_edges(self) -> List[List[Dict[str, Any]]]:
+    def _get_topo_edges(self) -> List[List[Edge]]:
         rounds = round(math.log2(self._n_nodes))
         if (self._n_nodes != 2 ** rounds) or (rounds < 1):
             logger.error('Exponential ring topology is only supported for 2^x nodes and x > 1')

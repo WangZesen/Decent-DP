@@ -3,7 +3,7 @@ import torch
 from torch import Tensor
 from torch.optim.optimizer import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
-from typing import List, Tuple, Union
+from typing import Any, Callable, List, Optional, Tuple, Union
 
 def optim_fn_adam(params: List[Tuple[Tensor, str]],
                   lr: float = 1e-3,
@@ -25,7 +25,7 @@ def lr_scheduler_fn_cosine_with_warmup(optimizer: Optimizer,
                                                  milestones=[t_warmup])
 
 
-def accum_adam_foreach(params: List[torch.Tensor],
+def accum_adamw_foreach(params: List[torch.Tensor],
                        grads: List[torch.Tensor],
                        exp_avgs: List[torch.Tensor],
                        exp_avg_sqs: List[torch.Tensor],
@@ -39,7 +39,8 @@ def accum_adam_foreach(params: List[torch.Tensor],
                        accum_iter: int):
     torch._foreach_add_(state_steps, 1)
     if weight_decay != 0:
-        torch._foreach_add_(grads, params, alpha=weight_decay)
+        # torch._foreach_add_(grads, params, alpha=weight_decay)
+        torch._foreach_mul_(params, 1 - lr * weight_decay)
 
     step = state_steps[0].item()
     torch._foreach_add_(accum_grads, grads, alpha=1./accum_iter)
@@ -65,9 +66,9 @@ def accum_adam_foreach(params: List[torch.Tensor],
         torch._foreach_zero_(accum_grads)
 
 
-class AccumAdam(torch.optim.Optimizer):
+class AccumAdamW(torch.optim.Optimizer):
     def __init__(self,
-                 params: List[torch.Tensor],
+                 params: Any,
                  lr: float = 1e-3,
                  betas: Tuple[float, float] = (0.9, 0.999),
                  eps: float = 1e-8,
@@ -123,7 +124,10 @@ class AccumAdam(torch.optim.Optimizer):
                 group, params_with_grad, grads, exp_avgs, exp_avg_sqs, accum_grads, state_steps
             )
 
-            accum_adam_foreach(
+            if len(state_steps) == 0:
+                continue
+
+            accum_adamw_foreach(
                 params_with_grad,
                 grads,
                 exp_avgs,
@@ -139,6 +143,8 @@ class AccumAdam(torch.optim.Optimizer):
             )
 
 
+
+
 def accum_adam_foreach(params: List[torch.Tensor],
                        grads: List[torch.Tensor],
                        exp_avgs: List[torch.Tensor],
@@ -181,7 +187,7 @@ def accum_adam_foreach(params: List[torch.Tensor],
 
 class AccumAdam(torch.optim.Optimizer):
     def __init__(self,
-                 params: List[torch.Tensor],
+                 params: Any,
                  lr: float = 1e-3,
                  betas: Tuple[float, float] = (0.9, 0.999),
                  eps: float = 1e-8,
@@ -236,6 +242,9 @@ class AccumAdam(torch.optim.Optimizer):
             self._init_group(
                 group, params_with_grad, grads, exp_avgs, exp_avg_sqs, accum_grads, state_steps
             )
+
+            if len(state_steps) == 0:
+                continue
 
             accum_adam_foreach(
                 params_with_grad,

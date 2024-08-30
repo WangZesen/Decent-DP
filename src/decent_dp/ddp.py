@@ -36,6 +36,7 @@ class DecentralizedDataParallel(Module):
                  lr_scheduler_fn: Optional[LR_SCHEDULER_FN_TYPE] = None,
                  topology: str = 'complete',
                  scaler: Optional[GradScaler] = None,
+                 grad_clip_norm: float = 0.0,
                  param_as_bucket_view: bool = True,
                  sync_buffer_in_global_avg: bool = False,
                  bucket_size_in_mb: int = 25,
@@ -62,6 +63,7 @@ class DecentralizedDataParallel(Module):
         self._optim_fn = optim_fn
         self._lr_schd_fn = lr_scheduler_fn
         self._scaler = scaler
+        self._grad_clip_norm = grad_clip_norm
         self._param_as_bucket_view = param_as_bucket_view
         self._sync_buffer_in_global_avg = sync_buffer_in_global_avg
         self._bucket_size = bucket_size_in_mb * 1024 * 1024
@@ -79,13 +81,12 @@ class DecentralizedDataParallel(Module):
             logger.debug(f'Rank: {self._rank}, Local World Size: {self._local_world_size}, World Size: {self._world_size}')
             logger.debug(f'Topology: {topology}')
 
-        self._topo: Optional[Topology] = None
         self._params: List[Tensor] = list([x for x in self._model.parameters() if x.requires_grad])
         self._param_names: List[str] = list([n for n, x in self._model.named_parameters() if x.requires_grad])
         self._traced_param_ids: List[int] = []
         self._traced_params: List[Tensor] = []
         self._step: int = -1
-        self._comm_op: Optional[Work] = None
+        self._comm_op: List[Optional[Work]] = []
         self._is_initialized: bool = False
         self._last_param_cnt: List[int] = []
         self._last_param_cnt_b: List[int] = []
@@ -96,24 +97,27 @@ class DecentralizedDataParallel(Module):
         self._comm_buffers: List[List[Tensor]] = []
         self._comm_blocks: List[Tensor] = []
         self._optims: List[Optimizer] = []
-        self._lr_schedulers: List[LRScheduler] = []
+        self._lr_schedulers: List[Optional[LRScheduler]] = []
         if self._profile_mode:
             self._time_stats: Dict[str, deque] = {
                 'forward': deque(maxlen=100000),
                 'iter': deque(maxlen=100000)
             }
-            self._iter_end: Optional[torch.cuda.Event] = None
-            self._fw_start: Optional[torch.cuda.Event] = None
-            self._fw_end: Optional[torch.cuda.Event] = None
+            self._iter_end: torch.cuda.Event = None # type: ignore
+            self._fw_start: torch.cuda.Event = None # type: ignore
+            self._fw_end: torch.cuda.Event = None # type: ignore
 
         # initialize the topology
-        self._topo = TopologyReg.registry[topology](self._local_world_size)
+        self._topo: Topology = TopologyReg.registry[topology](self._local_world_size)
 
         # create hooks to trace the used parameters in backward
         self._create_hooks()
 
         # sync the parameters at the start
         self._sync_at_start()
+
+        # flag for gradient accumulation
+        self._accumulating: bool = False
     
     def _create_hooks(self):
         for pid, param in enumerate(self._params):
@@ -131,6 +135,16 @@ class DecentralizedDataParallel(Module):
         for param in self._params:
             dist.broadcast(param, 0)
     
+
+    def accumulate_grad(self, accumulate: bool = True):
+        """Set the gradient accumulation mode
+
+        Args:
+            accumulate (bool, optional): Whether to accumulate the gradients. Defaults to True.
+        """
+        self._accumulating = accumulate
+
+    
     """Hook functions"""
 
     @torch.no_grad()
@@ -142,6 +156,9 @@ class DecentralizedDataParallel(Module):
         self._last_param_cnt[bucket_id] -= 1
         if self._last_param_cnt[bucket_id] == 0:
             self._last_param_cnt[bucket_id] = self._last_param_cnt_b[bucket_id]
+
+            if self._accumulating:
+                return
 
             if self._comm_op[bucket_id] is not None:
                 if self._profile_mode:
@@ -167,10 +184,15 @@ class DecentralizedDataParallel(Module):
                     self._param_blocks[bucket_id].add_(self._comm_blocks[bucket_id])
             
             if self._scaler:
+                if self._grad_clip_norm > 0:
+                    self._scaler.unscale_(self._optims[bucket_id])
+                    torch.nn.utils.clip_grad_norm_(self._param_buckets[bucket_id], self._grad_clip_norm)
                 self._scaler.step(self._optims[bucket_id])
                 if bucket_id == len(self._param_buckets) - 1:
                     self._scaler.update()
             else:
+                if self._grad_clip_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(self._param_buckets[bucket_id], self._grad_clip_norm)
                 self._optims[bucket_id].step()
             self._optims[bucket_id].zero_grad()
 
@@ -287,7 +309,7 @@ class DecentralizedDataParallel(Module):
         
         self._comm_op = [None] * len(self._param_buckets)
         if self._profile_mode:
-            self._comm_events: List[List[Optional[torch.cuda.Event]]] = [[None, None]] * len(self._param_buckets)
+            self._comm_events: List[List[torch.cuda.Event]] = [[None, None]] * len(self._param_buckets) # type: ignore
 
 
     """Delegate functions"""
@@ -299,10 +321,12 @@ class DecentralizedDataParallel(Module):
             mode (bool, optional): Whether to set the module in training mode. Defaults to True.
         """
         self._model.train(mode)
+        return self
     
     def eval(self):
         """Set the module in evaluation mode"""
         self._model.eval()
+        return self
 
     def forward(self, *args, **kwargs):
         if (self._step == 0) and (not self._is_initialized): # lazy initialization at the second iteration
@@ -316,10 +340,15 @@ class DecentralizedDataParallel(Module):
                 for i in range(len(self._param_buckets)):
                     # update weights
                     if self._scaler:
+                        if self._grad_clip_norm > 0:
+                            self._scaler.unscale_(self._optims[i])
+                            torch.nn.utils.clip_grad_norm_(self._param_buckets[i], self._grad_clip_norm)
                         self._scaler.step(self._optims[i])
                         if i == len(self._param_buckets) - 1:
                             self._scaler.update()
                     else:
+                        if self._grad_clip_norm > 0:
+                            torch.nn.utils.clip_grad_norm_(self._param_buckets[i], self._grad_clip_norm)
                         self._optims[i].step()
                     self._optims[i].zero_grad()
                     if self._lr_schedulers[i] is not None:
@@ -339,7 +368,7 @@ class DecentralizedDataParallel(Module):
                         async_op=True
                     )
 
-        if self._model.training:
+        if self._model.training and (not self._accumulating):
             self._step += 1
 
         with torch.autograd.profiler.record_function("DecentralizedDataParallel.forward"):
@@ -396,22 +425,29 @@ class DecentralizedDataParallel(Module):
         """Reset the time statistics"""
         for key in self._time_stats:
             self._time_stats[key].clear()
-        self._fw_start = None
-        self._fw_end = None
+        self._fw_start = None # type: ignore
+        self._fw_end = None # type: ignore
 
     @torch.no_grad()
     def global_avg(self):
-        """Perform global average on the parameters (or buffers if sync_buffer_in_global_avg is True)"""
+        """Perform global average on the parameters (and buffers if sync_buffer_in_global_avg is True)"""
+        # if not self._is_initialized:
+        #     return
+
         for op in self._comm_op:
             if op is not None:
                 op.wait()
         self._comm_op = [None for _ in range(len(self._param_buckets))]
 
         torch._foreach_div_([x.data for x in self._params], self._world_size)
-        dist.all_reduce_coalesced([x.data for x in self._params], op=dist.ReduceOp.SUM)
+        for x in self._params:
+            dist.all_reduce(x.data, op=dist.ReduceOp.SUM)
+        # dist.all_reduce_coalesced([x.data for x in self._params], op=dist.ReduceOp.SUM)
         
         if self._sync_buffer_in_global_avg:
             # sync float buffers
-            dist.all_reduce_coalesced([x.data for x in self._model.buffers() if x.dtype in self.FLOAT_DTYPES], op=dist.ReduceOp.SUM)
+            for x in self._model.buffers():
+                if x.dtype in self.FLOAT_DTYPES:
+                    dist.all_reduce(x.data, op=dist.ReduceOp.SUM)
             torch._foreach_div_([x.data for x in self._model.buffers() if x.dtype in self.FLOAT_DTYPES], self._world_size)
 
