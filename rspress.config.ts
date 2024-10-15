@@ -24,7 +24,7 @@ export default defineConfig({
   },
   multiVersion: {
     default: 'v0',
-    versions: ['v0', 'v1'],
+    versions: ['v0'],
   },
   plugins: [
     katex({
