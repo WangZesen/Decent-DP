@@ -142,6 +142,30 @@ class OnePeerExpTopology(Topology):
         return edges
 
 
+@TopologyReg.register('exp-ring')
+class ExpRingTopology(Topology):
+    def _get_topo_edges(self) -> List[List[Edge]]:
+        rounds = round(math.log2(self._n_nodes))
+        if (self._n_nodes != 2 ** rounds) or (rounds < 1):
+            logger.error('Exponential ring topology is only supported for 2^x nodes and x > 1')
+            raise ValueError()
+        edges = []
+        for i in range(rounds):
+            edges.append([])
+            used = [False] * self._n_nodes
+            for j in range(self._n_nodes):
+                if not used[j]:
+                    used[j] = True
+                    t = (j + 2 ** i) % self._n_nodes
+                    used[t] = True
+                    edges[-1].append(Edge(
+                        ranks=list(range(j * self._local_world_size, (j + 1) * self._local_world_size)) + \
+                              list(range(t * self._local_world_size, (t + 1) * self._local_world_size)),
+                        weights=[1 / self._local_world_size / 2] * (self._local_world_size * 2)
+                    ))
+        return edges
+
+
 @TopologyReg.register('alternating-exp-ring')
 class ExpRingTopology(Topology):
     def _get_topo_edges(self) -> List[List[Edge]]:
