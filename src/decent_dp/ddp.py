@@ -5,7 +5,7 @@ import copy
 from loguru import logger
 from functools import partial
 from collections import deque
-from typing import Callable, Dict, Iterator, List, Optional, Tuple
+from typing import Callable, Dict, Iterator, List, Optional, Tuple, cast
 import torch
 from torch import Tensor
 from torch.nn import Module
@@ -17,6 +17,7 @@ from torch.nn.parameter import Parameter
 from torch.utils.hooks import RemovableHandle
 from torch.optim.lr_scheduler import LRScheduler
 from .topo import TopologyReg, Topology
+from torch._C import CudaEventBase # type: ignore
 
 OPTIM_FN_TYPE = Callable[[List[Tuple[Tensor, str]]], Optimizer]
 """Data type for the optimizer function"""
@@ -103,9 +104,9 @@ class DecentralizedDataParallel(Module):
                 'forward': deque(maxlen=100000),
                 'iter': deque(maxlen=100000)
             }
-            self._iter_end: torch.cuda.Event = None # type: ignore
-            self._fw_start: torch.cuda.Event = None # type: ignore
-            self._fw_end: torch.cuda.Event = None # type: ignore
+            self._iter_end: CudaEventBase = None # type: ignore
+            self._fw_start: CudaEventBase = None # type: ignore
+            self._fw_end: CudaEventBase = None # type: ignore
 
         # initialize the topology
         self._topo: Topology = TopologyReg.registry[topology](self._local_world_size)
@@ -160,11 +161,12 @@ class DecentralizedDataParallel(Module):
             if self._accumulating:
                 return
 
-            if self._comm_op[bucket_id] is not None:
+            comm_op = self._comm_op[bucket_id]
+            if comm_op is not None:
                 if self._profile_mode:
                     self._comm_events[bucket_id][0] = torch.cuda.Event(enable_timing=True)
                     self._comm_events[bucket_id][0].record(torch.cuda.current_stream())
-                self._comm_op[bucket_id].wait()
+                comm_op.wait()
                 if self._profile_mode:
                     self._comm_events[bucket_id][1] = torch.cuda.Event(enable_timing=True)
                     self._comm_events[bucket_id][1].record(torch.cuda.current_stream())
@@ -174,7 +176,7 @@ class DecentralizedDataParallel(Module):
                 weight = edge.weights[edge.ranks.index(self._rank)]
 
                 if hasattr(self._optims[bucket_id], 'pre_average_hook'):
-                    self._optims[bucket_id].pre_average_hook(edge, weight)
+                    self._optims[bucket_id].pre_average_hook(edge, weight) # type: ignore
 
                 if not self._param_as_bucket_view:
                     torch._foreach_mul_(self._param_buckets[bucket_id], weight - (1 - weight) / (len(edge.ranks) - 1))
@@ -197,7 +199,8 @@ class DecentralizedDataParallel(Module):
             self._optims[bucket_id].zero_grad()
 
             if self._lr_schedulers[bucket_id] is not None:
-                self._lr_schedulers[bucket_id].step()
+                scheduler = cast(LRScheduler, self._lr_schedulers[bucket_id])
+                scheduler.step()
 
             # launch the next communication
             if not self._param_as_bucket_view:
@@ -217,7 +220,7 @@ class DecentralizedDataParallel(Module):
             
             if self._profile_mode and (bucket_id == len(self._param_buckets) - 1):
                 iter_end = torch.cuda.Event(enable_timing=True, blocking=True)
-                iter_end.record()
+                iter_end.record() # type: ignore
                 iter_end.synchronize()
                 if self._iter_end:
                     non_overlap_comm = 0.
@@ -235,6 +238,7 @@ class DecentralizedDataParallel(Module):
         verify = [[[i, self._params[i].numel()] for i in self._traced_param_ids]]
         result = [None] if self._rank != 0 else verify
         dist.broadcast_object_list(result, src=0)
+        result = cast(List[List[List[int]]], result)
         if not all([x == y for x, y in zip(verify[0], result[0])]):
             logger.error('Number/Order of elements in used parameters is different on different nodes')
             raise RuntimeError()
@@ -309,7 +313,7 @@ class DecentralizedDataParallel(Module):
         
         self._comm_op = [None] * len(self._param_buckets)
         if self._profile_mode:
-            self._comm_events: List[List[torch.cuda.Event]] = [[None, None]] * len(self._param_buckets) # type: ignore
+            self._comm_events: List[List[CudaEventBase]] = [[None, None]] * len(self._param_buckets) # type: ignore
 
 
     """Delegate functions"""
@@ -352,7 +356,8 @@ class DecentralizedDataParallel(Module):
                         self._optims[i].step()
                     self._optims[i].zero_grad()
                     if self._lr_schedulers[i] is not None:
-                        self._lr_schedulers[i].step()
+                        scheduler = cast(LRScheduler, self._lr_schedulers[i])
+                        scheduler.step()
                     
                     # launch the first communication
                     if not self._param_as_bucket_view:
@@ -374,7 +379,7 @@ class DecentralizedDataParallel(Module):
         with torch.autograd.profiler.record_function("DecentralizedDataParallel.forward"):
             if self._model.training and self._profile_mode:
                 fw_start = torch.cuda.Event(enable_timing=True)
-                fw_start.record()
+                fw_start.record() # type: ignore
                 fw_start.synchronize()
                 if self._fw_start is not None:
                     self._fw_end.synchronize()
