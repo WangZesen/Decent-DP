@@ -17,7 +17,7 @@ from torch.nn.parameter import Parameter
 from torch.utils.hooks import RemovableHandle
 from torch.optim.lr_scheduler import LRScheduler
 from .topo import TopologyReg, Topology
-from torch._C import CudaEventBase # type: ignore
+# from torch._C import CudaEventBase # type: ignore
 
 OPTIM_FN_TYPE = Callable[[List[Tuple[Tensor, str]]], Optimizer]
 """Data type for the optimizer function"""
@@ -41,6 +41,8 @@ class DecentralizedDataParallel(Module):
                  param_as_bucket_view: bool = True,
                  sync_buffer_in_global_avg: bool = False,
                  bucket_size_in_mb: int = 25,
+                 num_grad_buckets: int = 0,
+                 grad_optim_fn: Optional[OPTIM_FN_TYPE] = None,
                  profile_mode: bool = False,
                  local_world_size: Optional[int] = None):
         """Decentralized data parallel wrapper for PyTorch module
@@ -70,6 +72,8 @@ class DecentralizedDataParallel(Module):
         self._bucket_size = bucket_size_in_mb * 1024 * 1024
         if profile_mode and (not torch.cuda.is_available()) and (dist.get_rank() == 0):
             logger.warning('Profile mode is enabled but CUDA is not available, disabling profile mode')
+        self._num_grad_buckets = num_grad_buckets
+        self._grad_optim_fn = grad_optim_fn
         self._profile_mode = profile_mode and torch.cuda.is_available()
         self._local_world_size = local_world_size if local_world_size is not None else int(os.environ.get('LOCAL_WORLD_SIZE', 1))
 
@@ -95,6 +99,7 @@ class DecentralizedDataParallel(Module):
         self._ddp_hooks: List[RemovableHandle] = []
         self._param_buckets: List[List[Tensor]] = []
         self._param_blocks: List[Tensor] = []
+        self._grad_blocks: List[Tensor] = []
         self._comm_buffers: List[List[Tensor]] = []
         self._comm_blocks: List[Tensor] = []
         self._optims: List[Optimizer] = []
@@ -104,9 +109,9 @@ class DecentralizedDataParallel(Module):
                 'forward': deque(maxlen=100000),
                 'iter': deque(maxlen=100000)
             }
-            self._iter_end: CudaEventBase = None # type: ignore
-            self._fw_start: CudaEventBase = None # type: ignore
-            self._fw_end: CudaEventBase = None # type: ignore
+            self._iter_end = None # type: ignore
+            self._fw_start = None # type: ignore
+            self._fw_end = None # type: ignore
 
         # initialize the topology
         self._topo: Topology = TopologyReg.registry[topology](self._local_world_size)
@@ -161,77 +166,99 @@ class DecentralizedDataParallel(Module):
             if self._accumulating:
                 return
 
-            comm_op = self._comm_op[bucket_id]
-            if comm_op is not None:
-                if self._profile_mode:
-                    self._comm_events[bucket_id][0] = torch.cuda.Event(enable_timing=True)
-                    self._comm_events[bucket_id][0].record(torch.cuda.current_stream())
-                comm_op.wait()
-                if self._profile_mode:
-                    self._comm_events[bucket_id][1] = torch.cuda.Event(enable_timing=True)
-                    self._comm_events[bucket_id][1].record(torch.cuda.current_stream())
-                self._comm_op[bucket_id] = None
-
-                edge = self._topo.get_edge(self._step)
-                weight = edge.weights[edge.ranks.index(self._rank)]
-
-                if hasattr(self._optims[bucket_id], 'pre_average_hook'):
-                    self._optims[bucket_id].pre_average_hook(edge, weight) # type: ignore
-
-                if not self._param_as_bucket_view:
-                    torch._foreach_mul_(self._param_buckets[bucket_id], weight - (1 - weight) / (len(edge.ranks) - 1))
-                    torch._foreach_add_(self._param_buckets[bucket_id], self._comm_buffers[bucket_id])
-                else:
-                    self._param_blocks[bucket_id].mul_(weight - (1 - weight) / (len(edge.ranks) - 1))
-                    self._param_blocks[bucket_id].add_(self._comm_blocks[bucket_id])
-            
-            if self._scaler:
-                if self._grad_clip_norm > 0:
+            if bucket_id < self._num_grad_buckets:
+                # for the gradient buckets, launch the communication and defer the update of the parameters to the end of the iteration
+                if self._scaler:
                     self._scaler.unscale_(self._optims[bucket_id])
-                    torch.nn.utils.clip_grad_norm_(self._param_buckets[bucket_id], self._grad_clip_norm)
-                self._scaler.step(self._optims[bucket_id])
-                if bucket_id == len(self._param_buckets) - 1:
-                    self._scaler.update()
+                self._comm_op[bucket_id] = dist.all_reduce(
+                    self._grad_blocks[bucket_id],
+                    op=dist.ReduceOp.AVG,
+                    async_op=True
+                )
             else:
-                if self._grad_clip_norm > 0:
-                    torch.nn.utils.clip_grad_norm_(self._param_buckets[bucket_id], self._grad_clip_norm)
-                self._optims[bucket_id].step()
-            self._optims[bucket_id].zero_grad()
+                # for the parameter buckets, receive the communication, update the parameters, and launch the next communication
+                comm_op = self._comm_op[bucket_id]
+                if comm_op is not None:
+                    if self._profile_mode:
+                        self._comm_events[bucket_id][0] = torch.cuda.Event(enable_timing=True)
+                        self._comm_events[bucket_id][0].record(torch.cuda.current_stream())
+                    comm_op.wait()
+                    if self._profile_mode:
+                        self._comm_events[bucket_id][1] = torch.cuda.Event(enable_timing=True)
+                        self._comm_events[bucket_id][1].record(torch.cuda.current_stream())
+                    self._comm_op[bucket_id] = None
 
-            if self._lr_schedulers[bucket_id] is not None:
-                scheduler = cast(LRScheduler, self._lr_schedulers[bucket_id])
-                scheduler.step()
+                    edge = self._topo.get_edge(self._step)
+                    weight = edge.weights[edge.ranks.index(self._rank)]
 
-            # launch the next communication
-            if not self._param_as_bucket_view:
-                torch._foreach_copy_(self._comm_buffers[bucket_id], self._param_buckets[bucket_id])
-            else:
-                self._comm_blocks[bucket_id].copy_(self._param_blocks[bucket_id])
-            edge = self._topo.get_edge(self._step + 1)
-            weight = edge.weights[edge.ranks.index(self._rank)]
-            self._comm_blocks[bucket_id].mul_((1 - weight) / (len(edge.ranks) - 1))
+                    if hasattr(self._optims[bucket_id], 'pre_average_hook'):
+                        self._optims[bucket_id].pre_average_hook(edge, weight) # type: ignore
 
-            self._comm_op[bucket_id] = dist.all_reduce(
-                self._comm_blocks[bucket_id],
-                op=dist.ReduceOp.SUM,
-                group=edge.group,
-                async_op=True
-            )
-            
-            if self._profile_mode and (bucket_id == len(self._param_buckets) - 1):
-                iter_end = torch.cuda.Event(enable_timing=True, blocking=True)
-                iter_end.record() # type: ignore
-                iter_end.synchronize()
-                if self._iter_end:
-                    non_overlap_comm = 0.
-                    for i in range(len(self._param_buckets)):
-                        if self._comm_events[i][0] is not None:
-                            self._comm_events[i][1].synchronize()
-                            non_overlap_comm += self._comm_events[i][0].elapsed_time(self._comm_events[i][1])
-                    # self._time_stats['non_overlap_comm'].append(non_overlap_comm)
-                    # self._time_stats['iter'].append(self._iter_end.elapsed_time(iter_end))
-                    # self._time_stats['compute'].append(self._time_stats['iter'][-1] - self._time_stats['non_overlap_comm'][-1])
-                self._iter_end = iter_end
+                    if not self._param_as_bucket_view:
+                        torch._foreach_mul_(self._param_buckets[bucket_id], weight - (1 - weight) / (len(edge.ranks) - 1))
+                        torch._foreach_add_(self._param_buckets[bucket_id], self._comm_buffers[bucket_id])
+                    else:
+                        self._param_blocks[bucket_id].mul_(weight - (1 - weight) / (len(edge.ranks) - 1))
+                        self._param_blocks[bucket_id].add_(self._comm_blocks[bucket_id])
+                
+                if self._scaler:
+                    if self._grad_clip_norm > 0:
+                        self._scaler.unscale_(self._optims[bucket_id])
+                        torch.nn.utils.clip_grad_norm_(self._param_buckets[bucket_id], self._grad_clip_norm)
+                    self._scaler.step(self._optims[bucket_id])
+                    if bucket_id == len(self._param_buckets) - 1:
+                        self._scaler.update()
+                else:
+                    if self._grad_clip_norm > 0:
+                        torch.nn.utils.clip_grad_norm_(self._param_buckets[bucket_id], self._grad_clip_norm)
+                    self._optims[bucket_id].step()
+                self._optims[bucket_id].zero_grad()
+
+                if self._lr_schedulers[bucket_id] is not None:
+                    scheduler = cast(LRScheduler, self._lr_schedulers[bucket_id])
+                    scheduler.step()
+
+                # launch the next communication
+                if not self._param_as_bucket_view:
+                    torch._foreach_copy_(self._comm_buffers[bucket_id], self._param_buckets[bucket_id])
+                else:
+                    self._comm_blocks[bucket_id].copy_(self._param_blocks[bucket_id])
+                edge = self._topo.get_edge(self._step + 1)
+                weight = edge.weights[edge.ranks.index(self._rank)]
+                self._comm_blocks[bucket_id].mul_((1 - weight) / (len(edge.ranks) - 1))
+
+                self._comm_op[bucket_id] = dist.all_reduce(
+                    self._comm_blocks[bucket_id],
+                    op=dist.ReduceOp.SUM,
+                    group=edge.group,
+                    async_op=True
+                )
+                
+                # if self._profile_mode and (bucket_id == len(self._param_buckets) - 1):
+                #     iter_end = torch.cuda.Event(enable_timing=True, blocking=True)
+                #     iter_end.record() # type: ignore
+                #     iter_end.synchronize()
+                #     if self._iter_end:
+                #         non_overlap_comm = 0.
+                #         for i in range(len(self._param_buckets)):
+                #             if self._comm_events[i][0] is not None:
+                #                 self._comm_events[i][1].synchronize()
+                #                 non_overlap_comm += self._comm_events[i][0].elapsed_time(self._comm_events[i][1])
+                #     self._iter_end = iter_end
+
+            if bucket_id == len(self._param_buckets) - 1:
+                for i in range(self._num_grad_buckets):
+                    self._comm_op[i].wait() # type: ignore
+                    # TODO: scaler
+                    if self._grad_clip_norm > 0:
+                        torch.nn.utils.clip_grad_norm_(self._param_buckets[i], self._grad_clip_norm)
+                    self._optims[i].step()
+                    self._optims[i].zero_grad(set_to_none=False)
+                    if self._lr_schedulers[i] is not None:
+                        scheduler = cast(LRScheduler, self._lr_schedulers[i])
+                        scheduler.step()
+                    self._comm_op[i] = None
+
 
     @torch.no_grad()
     def _initialize_params(self):
@@ -253,6 +280,8 @@ class DecentralizedDataParallel(Module):
                 traced_param_ids_unique.append(id)
         traced_param_ids_unique = list(reversed(traced_param_ids_unique))
 
+        bucket_param_names = []
+
         # split the parameters into roughly equal buckets, and register hooks on the last parameter of each bucket
         start = 0
         size = 0
@@ -270,13 +299,17 @@ class DecentralizedDataParallel(Module):
                 self._last_param_cnt.append(self._traced_param_ids.count(traced_param_ids_unique[i]))
                 self._param_buckets.append([self._params[j] for j in traced_param_ids_unique[start:i+1]])
                 param_names = [self._param_names[j] for j in traced_param_ids_unique[start:i+1]]
-                self._optims.append(self._optim_fn(list(zip(self._param_buckets[-1], param_names))))
-                self._lr_schedulers.append(self._lr_schd_fn(self._optims[-1]) if self._lr_schd_fn is not None else None)
+                bucket_param_names.append(param_names)
                 size = 0
                 start = i + 1
         
         self._last_param_cnt_b = copy.deepcopy(self._last_param_cnt)
         size_dict = {}
+
+        if self._num_grad_buckets > len(self._param_buckets):
+            logger.warning(f'Number of gradient buckets ({self._num_grad_buckets}) is greater than the number of ' + \
+                           f'parameter buckets ({len(self._param_buckets)}), setting it to the number of parameter buckets')
+        self._num_grad_buckets = min(self._num_grad_buckets, len(self._param_buckets))
 
         for i in range(len(self._param_buckets)):
             total_size = sum([p.numel() for p in self._param_buckets[i]])
@@ -290,6 +323,18 @@ class DecentralizedDataParallel(Module):
                                       device=self._param_buckets[i][0].device,
                                       requires_grad=False,
                                       dtype=self._param_buckets[i][0].dtype)
+            
+            self._grad_blocks.append(torch.empty(total_size,
+                                                 device=self._param_buckets[i][0].device,
+                                                 requires_grad=False,
+                                                 dtype=self._param_buckets[i][0].grad.dtype)) # type: ignore
+            start = 0
+            for j in range(len(self._param_buckets[i])):
+                size = self._param_buckets[i][j].numel()
+                self._grad_blocks[-1].narrow(0, start, size).copy_(self._param_buckets[i][j].grad.view(-1)) # type: ignore
+                self._param_buckets[i][j].grad = self._grad_blocks[-1].narrow(0, start, size).view_as(self._param_buckets[i][j])
+                start += size
+
             if self._param_as_bucket_view:
                 self._param_blocks.append(torch.empty(total_size,
                                                       device=self._param_buckets[i][0].device,
@@ -310,10 +355,16 @@ class DecentralizedDataParallel(Module):
                 self._comm_buffers[-1].append(comm_buffer.narrow(0, start, size).view_as(self._param_buckets[i][j]))
                 setattr(self._param_buckets[i][j], 'comm_buffer', self._comm_buffers[-1][-1])
                 start += size
+            
+            if (i < self._num_grad_buckets) and (self._grad_optim_fn is not None):
+                self._optims.append(self._grad_optim_fn(list(zip(self._param_buckets[i], bucket_param_names[i]))))
+            else:
+                self._optims.append(self._optim_fn(list(zip(self._param_buckets[i], bucket_param_names[i]))))
+            self._lr_schedulers.append(self._lr_schd_fn(self._optims[i]) if self._lr_schd_fn is not None else None)
         
         self._comm_op = [None] * len(self._param_buckets)
         if self._profile_mode:
-            self._comm_events: List[List[CudaEventBase]] = [[None, None]] * len(self._param_buckets) # type: ignore
+            self._comm_events = [[None, None]] * len(self._param_buckets) # type: ignore
 
 
     """Delegate functions"""
@@ -341,6 +392,11 @@ class DecentralizedDataParallel(Module):
             with torch.no_grad():
                 edge = self._topo.get_edge(self._step)
                 weight = edge.weights[edge.ranks.index(self._rank)]
+
+                # sync the gradients of first <self._num_grad_buckets> buckets
+                for i in range(self._num_grad_buckets):
+                    dist.all_reduce(self._grad_blocks[i], op=dist.ReduceOp.AVG)
+
                 for i in range(len(self._param_buckets)):
                     # update weights
                     if self._scaler:
@@ -354,24 +410,25 @@ class DecentralizedDataParallel(Module):
                         if self._grad_clip_norm > 0:
                             torch.nn.utils.clip_grad_norm_(self._param_buckets[i], self._grad_clip_norm)
                         self._optims[i].step()
-                    self._optims[i].zero_grad()
+                    self._optims[i].zero_grad(set_to_none=False)
                     if self._lr_schedulers[i] is not None:
                         scheduler = cast(LRScheduler, self._lr_schedulers[i])
                         scheduler.step()
                     
                     # launch the first communication
-                    if not self._param_as_bucket_view:
-                        torch._foreach_copy_(self._comm_buffers[i], self._param_buckets[i])
-                    else:
-                        self._comm_blocks[i].copy_(self._param_blocks[i])
-                    
-                    self._comm_blocks[i].mul_((1 - weight) / (len(edge.ranks) - 1))
-                    self._comm_op[i] = dist.all_reduce(
-                        self._comm_blocks[i],
-                        op=dist.ReduceOp.SUM,
-                        group=edge.group,
-                        async_op=True
-                    )
+                    if i >= self._num_grad_buckets:
+                        if not self._param_as_bucket_view:
+                            torch._foreach_copy_(self._comm_buffers[i], self._param_buckets[i])
+                        else:
+                            self._comm_blocks[i].copy_(self._param_blocks[i])
+                        
+                        self._comm_blocks[i].mul_((1 - weight) / (len(edge.ranks) - 1))
+                        self._comm_op[i] = dist.all_reduce(
+                            self._comm_blocks[i],
+                            op=dist.ReduceOp.SUM,
+                            group=edge.group,
+                            async_op=True
+                        )
 
         if self._model.training and (not self._accumulating):
             self._step += 1
@@ -436,9 +493,6 @@ class DecentralizedDataParallel(Module):
     @torch.no_grad()
     def global_avg(self):
         """Perform global average on the parameters (and buffers if sync_buffer_in_global_avg is True)"""
-        # if not self._is_initialized:
-        #     return
-
         for op in self._comm_op:
             if op is not None:
                 op.wait()
@@ -447,7 +501,6 @@ class DecentralizedDataParallel(Module):
         torch._foreach_div_([x.data for x in self._params], self._world_size)
         for x in self._params:
             dist.all_reduce(x.data, op=dist.ReduceOp.SUM)
-        # dist.all_reduce_coalesced([x.data for x in self._params], op=dist.ReduceOp.SUM)
         
         if self._sync_buffer_in_global_avg:
             # sync float buffers
