@@ -17,7 +17,7 @@ from torch.nn.parameter import Parameter
 from torch.utils.hooks import RemovableHandle
 from torch.optim.lr_scheduler import LRScheduler
 from .topo import TopologyReg, Topology
-from torch._C import CudaEventBase # type: ignore
+# from torch._C import CudaEventBase # type: ignore
 
 OPTIM_FN_TYPE = Callable[[List[Tuple[Tensor, str]]], Optimizer]
 """Data type for the optimizer function"""
@@ -104,9 +104,9 @@ class DecentralizedDataParallel(Module):
                 'forward': deque(maxlen=100000),
                 'iter': deque(maxlen=100000)
             }
-            self._iter_end: CudaEventBase = None # type: ignore
-            self._fw_start: CudaEventBase = None # type: ignore
-            self._fw_end: CudaEventBase = None # type: ignore
+            self._iter_end = None # type: ignore
+            self._fw_start = None # type: ignore
+            self._fw_end = None # type: ignore
 
         # initialize the topology
         self._topo: Topology = TopologyReg.registry[topology](self._local_world_size)
@@ -313,7 +313,7 @@ class DecentralizedDataParallel(Module):
         
         self._comm_op = [None] * len(self._param_buckets)
         if self._profile_mode:
-            self._comm_events: List[List[CudaEventBase]] = [[None, None]] * len(self._param_buckets) # type: ignore
+            self._comm_events = [[None, None]] * len(self._param_buckets) # type: ignore
 
 
     """Delegate functions"""
