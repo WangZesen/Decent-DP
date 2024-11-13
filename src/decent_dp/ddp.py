@@ -2,6 +2,7 @@ __docformat__ = 'google'
 
 import os
 import copy
+import math
 from loguru import logger
 from functools import partial
 from collections import deque
@@ -73,6 +74,9 @@ class DecentralizedDataParallel(Module):
         self._profile_mode = profile_mode and torch.cuda.is_available()
         self._local_world_size = local_world_size if local_world_size is not None else int(os.environ.get('LOCAL_WORLD_SIZE', 1))
 
+        # check if the model is in "channels_last" memory format
+        self._is_channels_last = self._check_channels_last()
+
         # get the rank and world size
         self._rank = dist.get_rank()
         self._world_size = dist.get_world_size()
@@ -119,7 +123,15 @@ class DecentralizedDataParallel(Module):
 
         # flag for gradient accumulation
         self._accumulating: bool = False
-    
+
+
+    def _check_channels_last(self) -> bool:
+        if not all([x.is_contiguous(memory_format=torch.channels_last) for x in self._model.parameters() if len(x.shape) == 4]):
+            return False
+        logger.info('Model is in "channels_last" memory format')
+        return True
+
+
     def _create_hooks(self):
         for pid, param in enumerate(self._params):
             self._trace_hooks.append(
@@ -279,7 +291,7 @@ class DecentralizedDataParallel(Module):
         size_dict = {}
 
         for i in range(len(self._param_buckets)):
-            total_size = sum([p.numel() for p in self._param_buckets[i]])
+            total_size = sum([self._align(p.numel()) for p in self._param_buckets[i]])
 
             # make sure the total size is unique for each bucket
             while total_size in size_dict:
@@ -298,9 +310,18 @@ class DecentralizedDataParallel(Module):
                 start = 0
                 for j in range(len(self._param_buckets[i])):
                     size = self._param_buckets[i][j].numel()
-                    self._param_blocks[-1].narrow(0, start, size).copy_(self._param_buckets[i][j].view(-1))
-                    self._param_buckets[i][j].data = self._param_blocks[-1].narrow(0, start, size).view_as(self._param_buckets[i][j])
-                    start += size
+                    if (len(self._param_buckets[i][j].shape) == 4) and self._is_channels_last:
+                        self._param_blocks[-1].narrow(0, start, size).copy_(self._param_buckets[i][j].permute(0, 2, 3, 1).view(-1))
+                        self._param_buckets[i][j].data = self._param_blocks[-1].narrow(0, start, size).view(
+                            (self._param_buckets[i][j].shape[0],
+                             self._param_buckets[i][j].shape[2],
+                             self._param_buckets[i][j].shape[3],
+                             self._param_buckets[i][j].shape[1])
+                        ).permute(0, 3, 1, 2)
+                    else:
+                        self._param_blocks[-1].narrow(0, start, size).copy_(self._param_buckets[i][j].contiguous(memory_format=torch.contiguous_format).view(-1))
+                        self._param_buckets[i][j].data = self._param_blocks[-1].narrow(0, start, size).view_as(self._param_buckets[i][j])
+                    start += self._align(size)
 
             self._comm_buffers.append([])
             self._comm_blocks.append(comm_buffer)
@@ -309,11 +330,14 @@ class DecentralizedDataParallel(Module):
                 size = self._param_buckets[i][j].numel()
                 self._comm_buffers[-1].append(comm_buffer.narrow(0, start, size).view_as(self._param_buckets[i][j]))
                 setattr(self._param_buckets[i][j], 'comm_buffer', self._comm_buffers[-1][-1])
-                start += size
+                start += self._align(size)
         
         self._comm_op = [None] * len(self._param_buckets)
         if self._profile_mode:
             self._comm_events = [[None, None]] * len(self._param_buckets) # type: ignore
+
+    def _align(self, size: int):
+        return math.ceil(size / 32) * 32
 
 
     """Delegate functions"""
