@@ -271,6 +271,7 @@ class DecentralizedDataParallel(Module):
         for i in range(len(traced_param_ids_unique)):
             size += self._params[traced_param_ids_unique[i]].numel() * self._params[traced_param_ids_unique[i]].element_size()
             if (size >= self._bucket_size) or (i == len(traced_param_ids_unique) - 1):
+                # register hooks on the last parameter of each bucket, passing the bucket id
                 self._ddp_hooks.append(
                     self._params[traced_param_ids_unique[i]].register_post_accumulate_grad_hook(
                         partial(
