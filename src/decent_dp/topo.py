@@ -17,7 +17,8 @@ class Topology:
         '''Initialize the topology class
         
         Args:
-            local_world_size (int): Number of processes in each node
+            local_world_size (int): Number of processes in each node (added as argument for some testing \
+                purposes, should be set as the environment variable LOCAL_WORLD_SIZE for normal cases)
         '''
 
         assert dist.is_available() and dist.is_initialized(), "Distributed environment is not initialized"
@@ -32,6 +33,8 @@ class Topology:
         self._create_edges()
 
     def _create_edges(self):
+        """Create process groups for each "edge" (or group) in the topology
+        """
         all_edges = self._get_topo_edges()
         self._validate_edges(all_edges)
 
@@ -53,6 +56,12 @@ class Topology:
                     break
 
     def _validate_edges(self, edges: List[List[Edge]]):
+        """Verify that the topology is valid. A valid topology is one where each \
+            node participates in exactly communication in each iteration
+
+        Args:
+            edges (List[List[Edge]]): List of edges for each iteration
+        """
         for idx in range(len(edges)):
             used = [False] * self._world_size
             for edge in edges[idx]:
@@ -67,6 +76,8 @@ class Topology:
                 raise ValueError()
 
     def get_edge(self, step: int) -> Edge:
+        """Get the edge for the given iteration
+        """
         return self._edges[step % len(self._edges)]
 
     def _get_topo_edges(self) -> List[List[Edge]]: ...
@@ -89,6 +100,9 @@ class TopologyReg:
 
 @TopologyReg.register('complete')
 class CompleteTopology(Topology):
+    """Complete topology where each node communicates with all other nodes. The weights are 1/n.
+    """
+
     def _get_topo_edges(self) -> List[List[Edge]]:
         return [[Edge(
             ranks=list(range(self._world_size)),
@@ -98,6 +112,10 @@ class CompleteTopology(Topology):
 
 @TopologyReg.register('ring')
 class RingTopology(Topology):
+    """One-peer ring topology where each node communicates with one of its left and right \
+        neighbors (by index) in each iteration. The weights are 0.5 for each neighbor.
+    """
+
     def _get_topo_edges(self) -> List[List[Edge]]:
         if self._world_size % 2 != 0:
             logger.error('Ring topology is not supported for odd world size')
@@ -121,6 +139,9 @@ class RingTopology(Topology):
 
 @TopologyReg.register('one-peer-exp')
 class OnePeerExpTopology(Topology):
+    """One-peer exponential topology.
+    """
+
     def _get_topo_edges(self) -> List[List[Edge]]:
         rounds = round(math.log2(self._world_size))
         if self._world_size != 2 ** rounds:
@@ -142,32 +163,8 @@ class OnePeerExpTopology(Topology):
         return edges
 
 
-@TopologyReg.register('exp-ring')
-class ExpRingTopology(Topology):
-    def _get_topo_edges(self) -> List[List[Edge]]:
-        rounds = round(math.log2(self._n_nodes))
-        if (self._n_nodes != 2 ** rounds) or (rounds < 1):
-            logger.error('Exponential ring topology is only supported for 2^x nodes and x > 1')
-            raise ValueError()
-        edges = []
-        for i in range(rounds):
-            edges.append([])
-            used = [False] * self._n_nodes
-            for j in range(self._n_nodes):
-                if not used[j]:
-                    used[j] = True
-                    t = (j + 2 ** i) % self._n_nodes
-                    used[t] = True
-                    edges[-1].append(Edge(
-                        ranks=list(range(j * self._local_world_size, (j + 1) * self._local_world_size)) + \
-                              list(range(t * self._local_world_size, (t + 1) * self._local_world_size)),
-                        weights=[1 / self._local_world_size / 2] * (self._local_world_size * 2)
-                    ))
-        return edges
-
-
 @TopologyReg.register('alternating-exp-ring')
-class ExpRingTopology(Topology):
+class AlternatingExpRingTopology(Topology):
     def _get_topo_edges(self) -> List[List[Edge]]:
         rounds = round(math.log2(self._n_nodes))
         if (self._n_nodes != 2 ** rounds) or (rounds < 1):
@@ -214,4 +211,3 @@ class ExpRingTopology(Topology):
                         ))
                     cnt += 1
         return edges
-

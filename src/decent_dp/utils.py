@@ -4,6 +4,12 @@ import torch.distributed as dist
 import os
 
 def initialize_dist() -> Tuple[int, int]:
+    """A utility function to initialize the distributed environment
+
+    Returns:
+        Tuple[int, int]: rank and world size
+    """
+
     local_world_size = int(os.environ['LOCAL_WORLD_SIZE'])
     local_rank = int(os.environ['LOCAL_RANK'])
     gpus = os.environ.get('CUDA_VISIBLE_DEVICES', '')

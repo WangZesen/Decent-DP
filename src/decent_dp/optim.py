@@ -3,13 +3,19 @@ import torch
 from torch import Tensor
 from torch.optim.optimizer import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
-from typing import Any, Callable, List, Optional, Tuple, Union
+from typing import Any, List, Tuple, Union
 
 def optim_fn_adam(params: List[Tuple[Tensor, str]],
                   lr: float = 1e-3,
                   beta1: float = 0.9,
                   beta2: float = 0.999,
                   eps: float = 1e-8) -> Optimizer:
+    """An example of a function that creates an Adam optimizer with the given parameters and their names.
+        To change the hyperparameters of the optimizer, you can wrap it with `functools.partial` and pass the new values.
+
+    Returns:
+        Optimizer: an Adam optimizer
+    """
     return torch.optim.Adam([x for x, n in params], lr=lr, betas=(beta1, beta2), eps=eps)
 
 
@@ -18,6 +24,11 @@ def lr_scheduler_fn_cosine_with_warmup(optimizer: Optimizer,
                                        t_warmup: int,
                                        cosine_eta_min: float = 1e-6,
                                        warmup_decay: float = 0.01) -> LRScheduler:
+    """An example of a function that creates a learning rate scheduler that combines a warmup and a cosine annealing schedule.
+
+    Returns:
+        LRScheduler: a learning rate scheduler with warmup and cosine annealing
+    """
     main_lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=t_max, eta_min=cosine_eta_min)
     warmup_lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=warmup_decay, total_iters=t_warmup)
     return torch.optim.lr_scheduler.SequentialLR(optimizer,
@@ -37,9 +48,12 @@ def accum_adamw_foreach(params: List[torch.Tensor],
                        weight_decay: float,
                        eps: float,
                        accum_iter: int):
+    """Optimized version of AccumAdamW optimizer using torch._foreach
+        TODO: write a fused kernel for this
+    """
+
     torch._foreach_add_(state_steps, 1)
     if weight_decay != 0:
-        # torch._foreach_add_(grads, params, alpha=weight_decay)
         torch._foreach_mul_(params, 1 - lr * weight_decay)
 
     step = state_steps[0].item()
@@ -56,7 +70,7 @@ def accum_adamw_foreach(params: List[torch.Tensor],
     torch._foreach_sqrt_(_exp_avg_sqs)
     torch._foreach_div_(_exp_avg_sqs, bias_correction2_sqrt)
     torch._foreach_add_(_exp_avg_sqs, eps)
-    torch._foreach_addcdiv_(params, _exp_avgs, _exp_avg_sqs, value=-step_size)
+    torch._foreach_addcdiv_(params, _exp_avgs, _exp_avg_sqs, value=-step_size) # type: ignore
 
     if step % accum_iter == 0:
         torch._foreach_add_(exp_avgs, accum_grads, alpha=1-beta1)
@@ -143,8 +157,6 @@ class AccumAdamW(torch.optim.Optimizer):
             )
 
 
-
-
 def accum_adam_foreach(params: List[torch.Tensor],
                        grads: List[torch.Tensor],
                        exp_avgs: List[torch.Tensor],
@@ -157,6 +169,9 @@ def accum_adam_foreach(params: List[torch.Tensor],
                        weight_decay: float,
                        eps: float,
                        accum_iter: int):
+    """Optimized version of AccumAdam optimizer using torch._foreach
+        TODO: write a fused kernel for this
+    """
     torch._foreach_add_(state_steps, 1)
     if weight_decay != 0:
         torch._foreach_add_(grads, params, alpha=weight_decay)
@@ -175,7 +190,7 @@ def accum_adam_foreach(params: List[torch.Tensor],
     torch._foreach_sqrt_(_exp_avg_sqs)
     torch._foreach_div_(_exp_avg_sqs, bias_correction2_sqrt)
     torch._foreach_add_(_exp_avg_sqs, eps)
-    torch._foreach_addcdiv_(params, _exp_avgs, _exp_avg_sqs, value=-step_size)
+    torch._foreach_addcdiv_(params, _exp_avgs, _exp_avg_sqs, value=-step_size) # type: ignore
 
     if step % accum_iter == 0:
         torch._foreach_add_(exp_avgs, accum_grads, alpha=1-beta1)
