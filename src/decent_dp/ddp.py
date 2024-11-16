@@ -76,12 +76,12 @@ class DecentralizedDataParallel(Module):
         self._bucket_size = bucket_size_in_mb * 1024 * 1024
         self._local_world_size = local_world_size if local_world_size is not None else int(os.environ.get('LOCAL_WORLD_SIZE', 1))
 
-        # check if the model is in "channels_last" memory format
-        self._is_channels_last = self._check_channels_last()
-
         # get the rank and world size
         self._rank = dist.get_rank()
         self._world_size = dist.get_world_size()
+
+        # check if the model is in "channels_last" memory format
+        self._is_channels_last = self._check_channels_last()
 
         if self._rank == 0:
             logger.debug(f'----- Decentralized Data Parallel ------')
