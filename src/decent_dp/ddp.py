@@ -13,7 +13,7 @@ from torch.nn import Module
 import torch.distributed as dist
 from torch.optim import Optimizer
 from torch.distributed import Work
-from torch.cuda.amp import GradScaler
+from torch import GradScaler
 from torch.nn.parameter import Parameter
 from torch.utils.hooks import RemovableHandle
 from torch.optim.lr_scheduler import LRScheduler
