@@ -93,7 +93,7 @@ class DecentralizedDataParallel(Module):
         self._traced_param_ids: List[int] = []
         self._traced_params: List[Tensor] = []
         self._step: int = -1
-        self._comm_op: List[Optional[Work]] = []
+        self._comm_op: List[List[Optional[Work]]] = []
         self._is_initialized: bool = False
         self._last_param_cnt: List[int] = []
         self._last_param_cnt_b: List[int] = []
@@ -101,13 +101,14 @@ class DecentralizedDataParallel(Module):
         self._ddp_hooks: List[RemovableHandle] = []
         self._param_buckets: List[List[Tensor]] = []
         self._param_blocks: List[Tensor] = []
-        self._comm_buffers: List[List[Tensor]] = []
-        self._comm_blocks: List[Tensor] = []
+        self._comm_buffers: List[List[List[Tensor]]] = []
+        self._comm_blocks: List[List[Tensor]] = []
         self._optims: List[Optimizer] = []
         self._lr_schedulers: List[Optional[LRScheduler]] = []
 
         # initialize the topology
         self._topo: Topology = TopologyReg.registry[topology](self._local_world_size)
+        self._num_edges = len(self._topo.get_all_edges())
 
         # create hooks to trace the used parameters in backward
         self._create_hooks()
@@ -185,25 +186,28 @@ class DecentralizedDataParallel(Module):
             if self._accumulating:
                 return
 
-            comm_op = self._comm_op[bucket_id]
-            if comm_op is not None:
+            comm_ops = self._comm_op[bucket_id]
+            if comm_ops[0] is not None:
                 # wait for the communication in the previous iteration
-                comm_op.wait()
-                self._comm_op[bucket_id] = None
+                for k in range(self._num_edges):
+                    comm_ops[k].wait() # type: ignore
+                    self._comm_op[bucket_id][k] = None
 
                 # get the peers to communicate with in this iteration
-                edge = self._topo.get_edge(self._step)
-                weight = edge.weights[edge.ranks.index(self._rank)]
+                edges = self._topo.get_all_edges()
+                weights = [edge.weights[edge.ranks.index(self._rank)] for edge in edges]
 
                 # optionally call the pre_average_hook for optimizers using the communication information
                 if hasattr(self._optims[bucket_id], 'pre_average_hook'):
-                    self._optims[bucket_id].pre_average_hook(edge, weight) # type: ignore
+                    self._optims[bucket_id].pre_average_hook(weights, edges) # type: ignore
 
                 # replace the local model with the mixed model
                 if self._param_as_bucket_view:
-                    self._param_blocks[bucket_id].mul_(weight - (1 - weight) / (len(edge.ranks) - 1))
-                    self._param_blocks[bucket_id].add_(self._comm_blocks[bucket_id])
+                    self._param_blocks[bucket_id].mul_(sum(weight - (1 - weight) / (len(edge.ranks) - 1) for weight, edge in zip(weights, edges)) / self._num_edges)
+                    for k in range(self._num_edges):
+                        self._param_blocks[bucket_id].add_(self._comm_blocks[bucket_id][k], alpha=1./self._num_edges)
                 else:
+                    raise NotImplementedError()
                     torch._foreach_mul_(self._param_buckets[bucket_id], weight - (1 - weight) / (len(edge.ranks) - 1))
                     torch._foreach_add_(self._param_buckets[bucket_id], self._comm_buffers[bucket_id])
             
@@ -227,19 +231,23 @@ class DecentralizedDataParallel(Module):
 
             # launch the next communication after updating the weights
             if not self._param_as_bucket_view:
-                torch._foreach_copy_(self._comm_buffers[bucket_id], self._param_buckets[bucket_id])
+                for k in range(self._num_edges):
+                    torch._foreach_copy_(self._comm_buffers[bucket_id][k], self._param_buckets[bucket_id])
             else:
-                self._comm_blocks[bucket_id].copy_(self._param_blocks[bucket_id])
-            edge = self._topo.get_edge(self._step + 1)
-            weight = edge.weights[edge.ranks.index(self._rank)]
-            self._comm_blocks[bucket_id].mul_((1 - weight) / (len(edge.ranks) - 1))
+                for k in range(self._num_edges):
+                    self._comm_blocks[bucket_id][k].copy_(self._param_blocks[bucket_id])
 
-            self._comm_op[bucket_id] = dist.all_reduce(
-                self._comm_blocks[bucket_id],
-                op=dist.ReduceOp.SUM,
-                group=edge.group,
-                async_op=True
-            )
+            edges = self._topo.get_all_edges()
+            weights = [edge.weights[edge.ranks.index(self._rank)] for edge in edges]
+
+            for k in range(self._num_edges):
+                self._comm_blocks[bucket_id][k].mul_((1 - weights[k]) / (len(edges[k].ranks) - 1))
+                self._comm_op[bucket_id][k] = dist.all_reduce(
+                    self._comm_blocks[bucket_id][k],
+                    op=dist.ReduceOp.SUM,
+                    group=edges[k].group,
+                    async_op=True
+                )
 
     @torch.no_grad()
     def _initialize_params(self):
@@ -303,10 +311,10 @@ class DecentralizedDataParallel(Module):
             size_dict[total_size] = True
 
             # create the communication buffer for each bucket
-            comm_buffer = torch.empty(total_size,
-                                      device=self._param_buckets[i][0].device,
-                                      requires_grad=False,
-                                      dtype=self._param_buckets[i][0].dtype)
+            comm_buffers = [torch.empty(total_size,
+                                        device=self._param_buckets[i][0].device,
+                                        requires_grad=False,
+                                        dtype=self._param_buckets[i][0].dtype) for _ in range(self._num_edges)]
 
             if self._param_as_bucket_view:
                 # create the contiguous buffer for each bucket, and let the parameters be views of the fragments of the buffer
@@ -333,15 +341,24 @@ class DecentralizedDataParallel(Module):
                     start += self._align(size)
 
             self._comm_buffers.append([])
-            self._comm_blocks.append(comm_buffer)
-            start = 0
+            self._comm_blocks.append(comm_buffers)
+            
+            for k in range(self._num_edges):
+                start = 0
+                self._comm_buffers[-1].append([])
+                for j in range(len(self._param_buckets[i])):
+                    size = self._param_buckets[i][j].numel()
+                    self._comm_buffers[-1][-1].append(comm_buffers[k].narrow(0, start, size).view_as(self._param_buckets[i][j]))
+                    start += self._align(size)
+
             for j in range(len(self._param_buckets[i])):
-                size = self._param_buckets[i][j].numel()
-                self._comm_buffers[-1].append(comm_buffer.narrow(0, start, size).view_as(self._param_buckets[i][j]))
-                setattr(self._param_buckets[i][j], 'comm_buffer', self._comm_buffers[-1][-1])
-                start += self._align(size)
+                setattr(self._param_buckets[i][j], 'comm_buffer', [self._comm_buffers[-1][k][j] for k in range(self._num_edges)])
+                # fill the communication buffers with the initial parameters
+                for k in range(self._num_edges):
+                    self._comm_buffers[-1][k][j].copy_(self._param_buckets[i][j])
+                    
         
-        self._comm_op = [None] * len(self._param_buckets)
+        self._comm_op = [[None for _ in range(self._num_edges)] for _ in range(len(self._param_buckets))]
 
     def _align(self, size: int):
         """Align the size to 128-byte boundary
@@ -373,9 +390,13 @@ class DecentralizedDataParallel(Module):
 
             # manually trigger the communications for the first iteration only
             with torch.no_grad():
-                edge = self._topo.get_edge(self._step)
-                weight = edge.weights[edge.ranks.index(self._rank)]
+                edges = self._topo.get_all_edges()
+                weights = [edge.weights[edge.ranks.index(self._rank)] for edge in edges]
                 for i in range(len(self._param_buckets)):
+                    # call pre_average_hook
+                    if hasattr(self._optims[i], 'pre_average_hook'):
+                        self._optims[i].pre_average_hook(weights, edges) # type: ignore
+
                     # update weights
                     if self._scaler:
                         if self._grad_clip_norm > 0:
@@ -395,17 +416,20 @@ class DecentralizedDataParallel(Module):
                     
                     # launch the first communication
                     if not self._param_as_bucket_view:
-                        torch._foreach_copy_(self._comm_buffers[i], self._param_buckets[i])
+                        for k in range(self._num_edges):
+                            torch._foreach_copy_(self._comm_buffers[i][k], self._param_buckets[i])
                     else:
-                        self._comm_blocks[i].copy_(self._param_blocks[i])
+                        for k in range(self._num_edges):
+                            self._comm_blocks[i][k].copy_(self._param_blocks[i])
                     
-                    self._comm_blocks[i].mul_((1 - weight) / (len(edge.ranks) - 1))
-                    self._comm_op[i] = dist.all_reduce(
-                        self._comm_blocks[i],
-                        op=dist.ReduceOp.SUM,
-                        group=edge.group,
-                        async_op=True
-                    )
+                    for k in range(self._num_edges):
+                        self._comm_blocks[i][k].mul_((1 - weights[k]) / (len(edges[k].ranks) - 1))
+                        self._comm_op[i][k] = dist.all_reduce(
+                            self._comm_blocks[i][k],
+                            op=dist.ReduceOp.SUM,
+                            group=edges[k].group,
+                            async_op=True
+                        )
 
         if self._model.training and (not self._accumulating):
             self._step += 1
@@ -445,10 +469,12 @@ class DecentralizedDataParallel(Module):
         """Perform global average on the parameters (and buffers if sync_buffer_in_global_avg is True)
             The function is called at the end of the training loop to synchronize the parameters across all nodes for evaluation
         """
-        for op in self._comm_op:
-            if op is not None:
-                op.wait()
-        self._comm_op = [None for _ in range(len(self._param_buckets))]
+        # raise NotImplementedError()
+        for i in range(len(self._param_buckets)):
+            for op in self._comm_op[i]:
+                if op is not None:
+                    op.wait()
+        self._comm_op = [[None for _ in range(self._num_edges)] for _ in range(len(self._param_buckets))]
 
         torch._foreach_div_([x.data for x in self._params], self._world_size)
         for x in self._params:
@@ -461,3 +487,8 @@ class DecentralizedDataParallel(Module):
                     dist.all_reduce(x.data, op=dist.ReduceOp.SUM)
             torch._foreach_div_([x.data for x in self._model.buffers() if x.dtype in self.FLOAT_DTYPES], self._world_size)
 
+        for i in range(len(self._param_buckets)):
+            for j in range(len(self._param_buckets[i])):
+                # fill the communication buffers with the current parameters
+                for k in range(self._num_edges):
+                    self._comm_buffers[-1][k][j].copy_(self._param_buckets[i][j])

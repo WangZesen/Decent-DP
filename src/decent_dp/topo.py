@@ -80,6 +80,11 @@ class Topology:
         """
         return self._edges[step % len(self._edges)]
 
+    def get_all_edges(self) -> List[Edge]:
+        """Get all edges in the topology
+        """
+        return self._edges
+
     def _get_topo_edges(self) -> List[List[Edge]]: ...
 
 
@@ -126,13 +131,13 @@ class RingTopology(Topology):
         for i in range(0, self._world_size, 2):
             edges[0].append(Edge(
                 ranks=sorted([i, (i + 1) % self._world_size]),
-                weights=[0.5, 0.5]
+                weights=[1./3, 1./3]
             ))
         # Even iterations
         for i in range(0, self._world_size, 2):
             edges[1].append(Edge(
                 ranks=sorted([i, (i - 1 + self._world_size) % self._world_size]),
-                weights=[0.5, 0.5]
+                weights=[1./3, 1./3]
             ))
         return edges
 
