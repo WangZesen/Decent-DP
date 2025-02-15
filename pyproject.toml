@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "decent-dp"
+version = "0.1.0"
+authors = [
+  { name="Zesen Wang", email="zesen@kth.se" },
+]
+description = "A PyTorch extension for training neural networks with decentralized training"
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+license = {file = "LICENSE"}
+dependencies = [
+    "torch>=2.1.0",
+    "loguru>=0.7.0"
+]
+optional-dependencies = {"test" = [
+  "tqdm>=4.66.0"
+]}
+
+[project.urls]
+Homepage = "https://github.com/WangZesen/Decent-DP"
+Documentation = "https://wangzesen.github.io/Decent-DP/"
+Issues = "https://github.com/WangZesen/Decent-DP/issues"
+Repository = "https://github.com/WangZesen/Decent-DP"

@@ -1,0 +1,23 @@
+# Miscellaneous
+/logs
+/tests/MNIST
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+doc_build
+
+# Build files
+/build
+/dist
+/doc/build
+
+**/*.egg-info
+**/__pycache__
