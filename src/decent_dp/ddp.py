@@ -135,7 +135,7 @@ class DecentralizedDataParallel(Module):
         Returns:
             bool: True if the model is with "channels_last" memory format
         """
-        if any([x.is_contiguous(memory_format=torch.channels_last) for x in self._model.parameters() if len(x.shape) == 4]):
+        if any([x.is_contiguous(memory_format=torch.channels_last) and (not x.is_contiguous()) for x in self._model.parameters() if len(x.shape) == 4]):
             return True
         return False
 
