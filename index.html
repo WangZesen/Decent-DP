@@ -1,0 +1,205 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Decent-DP documentation &mdash; Decent-DP  documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+    <link rel="shortcut icon" href="_static/icon.ico"/>
+    <link rel="canonical" href="https://wangzesen.github.io/Decent-DP/index.html" />
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=5929fcd5"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="decent_dp" href="modules.html" />
+    <link href="_static/style.css" rel="stylesheet" type="text/css">
+
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="#" class="icon icon-home">
+            Decent-DP
+              <img src="_static/icon-light.png" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="modules.html">API Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="schema.html">Algorithm Schema</a></li>
+<li class="toctree-l1"><a class="reference internal" href="topology.html">Communication Topology</a></li>
+<li class="toctree-l1"><a class="reference internal" href="benchmark.html">Benchmark Tests</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="#">Decent-DP</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="#" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Decent-DP documentation</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/index.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="decent-dp-documentation">
+<h1>Decent-DP documentation<a class="headerlink" href="#decent-dp-documentation" title="Link to this heading"></a></h1>
+<p>The repository is the official implementation of the paper <strong>From Promise to Practice: Realizing High-performance Decentralized Training</strong> (<a class="reference external" href="https://arxiv.org/abs/2410.11998">arXiv version</a>, <a class="reference external" href="https://openreview.net/forum?id=lo3nlFHOft">OpenReview</a>) accepted by <strong>ICLR 2025</strong>.</p>
+<p>The package is an PyTorch extension that faciliates efficient multi-worker decentralized data parallel training which fits in certain algorithm schemas.</p>
+<section id="quick-start">
+<h2>Quick Start<a class="headerlink" href="#quick-start" title="Link to this heading"></a></h2>
+<section id="installation">
+<h3>Installation<a class="headerlink" href="#installation" title="Link to this heading"></a></h3>
+<ul>
+<li><dl>
+<dt>Install PyTorch (See <a class="reference external" href="https://pytorch.org/get-started/locally/">PyTorch Installation Guide</a> for platform-specific instructions)</dt><dd><div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip3<span class="w"> </span>install<span class="w"> </span>torch<span class="w"> </span>torchvision<span class="w"> </span>torchaudio
+</pre></div>
+</div>
+</dd>
+</dl>
+</li>
+<li><dl>
+<dt>Install Decent-DP</dt><dd><div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip3<span class="w"> </span>install<span class="w"> </span>decent-dp
+</pre></div>
+</div>
+</dd>
+</dl>
+</li>
+</ul>
+</section>
+<section id="basic-usage">
+<h3>Basic Usage<a class="headerlink" href="#basic-usage" title="Link to this heading"></a></h3>
+<p>Here is a pseudocode exmaple of how to use Decent-DP to train a model</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">torch.distributed</span> <span class="k">as</span> <span class="nn">dist</span>
+<span class="kn">from</span> <span class="nn">decent_dp.ddp</span> <span class="kn">import</span> <span class="n">DecentralizedDataParallel</span> <span class="k">as</span> <span class="n">DecentDP</span>
+
+<span class="c1"># Initialize process group</span>
+<span class="n">dist</span><span class="o">.</span><span class="n">init_process_group</span><span class="p">(</span><span class="n">backend</span><span class="o">=</span><span class="s1">&#39;nccl&#39;</span> <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="k">else</span> <span class="s1">&#39;gloo&#39;</span><span class="p">,</span> <span class="n">init_method</span><span class="o">=</span><span class="s1">&#39;env://&#39;</span><span class="p">)</span>
+
+<span class="c1"># Initialize model (move to device before wrapping with DecentDP)</span>
+<span class="n">model</span> <span class="o">=</span> <span class="o">...</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+
+<span class="c1"># Wrap model with DecentDP</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">DecentDP</span><span class="p">(</span><span class="n">model</span><span class="p">,</span>
+                 <span class="c1"># optimizer constructor function which takes List[Tuple[str, Tensor]] as input and returns an optimizer</span>
+                 <span class="c1"># examples could be found in `decent_dp.optim` module</span>
+                 <span class="n">optim_fn</span><span class="o">=&lt;</span><span class="n">optimizer</span> <span class="n">constructor</span> <span class="n">function</span><span class="o">&gt;</span><span class="p">,</span>
+                 <span class="c1"># lr scheduler constructor function which takes an optimizer as input and returns a lr scheduler.</span>
+                 <span class="c1"># None if no lr scheduler is used</span>
+                 <span class="c1"># examples could be found in `decent_dp.optim` module</span>
+                 <span class="n">lr_scheduler_fn</span><span class="o">=&lt;</span><span class="n">lr</span> <span class="n">scheduler</span> <span class="n">constructor</span> <span class="n">function</span><span class="o">&gt;</span><span class="p">,</span>
+                 <span class="c1"># topology of the network which is a string</span>
+                 <span class="c1"># supported topologies are &#39;ring&#39;, &#39;exp&#39;, &#39;complete&#39;, &#39;alternating-exp-ring&#39;</span>
+                 <span class="c1"># see Section `Communication topology` for more details</span>
+                 <span class="n">topology</span><span class="o">=&lt;</span><span class="n">topology</span><span class="o">&gt;</span><span class="p">)</span>
+
+<span class="c1"># Training loop</span>
+<span class="k">for</span> <span class="n">epoch</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_epochs</span><span class="p">):</span>
+    <span class="n">model</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="n">data_loader</span><span class="p">:</span>
+        <span class="n">loss</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+        <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+        <span class="c1"># no need for optimizer.step() as it is handled by DecentDP</span>
+
+    <span class="n">model</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="n">val_data_loader</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+            <span class="n">loss</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="citation">
+<h2>Citation<a class="headerlink" href="#citation" title="Link to this heading"></a></h2>
+<p>If you find this repository helpful, please consider citing the following paper:</p>
+<div class="highlight-bibtex notranslate"><div class="highlight"><pre><span></span><span class="nc">@inproceedings</span><span class="p">{</span><span class="nl">wang2024promise</span><span class="p">,</span>
+<span class="w">    </span><span class="na">title</span><span class="p">=</span><span class="s">{From Promise to Practice: Realizing High-performance Decentralized Training}</span><span class="p">,</span>
+<span class="w">    </span><span class="na">author</span><span class="p">=</span><span class="s">{Zesen Wang, Jiaojiao Zhang, Xuyang Wu, and Mikael Johansson}</span><span class="p">,</span>
+<span class="w">    </span><span class="na">booktitle</span><span class="p">=</span><span class="s">{International Conference on Learning Representations}</span><span class="p">,</span>
+<span class="w">    </span><span class="na">year</span><span class="p">=</span><span class="s">{2025}</span><span class="p">,</span>
+<span class="w">    </span><span class="na">url</span><span class="p">=</span><span class="s">{https://openreview.net/forum?id=lo3nlFHOft}</span><span class="p">,</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="modules.html">API Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="schema.html">Algorithm Schema</a></li>
+<li class="toctree-l1"><a class="reference internal" href="topology.html">Communication Topology</a></li>
+<li class="toctree-l1"><a class="reference internal" href="benchmark.html">Benchmark Tests</a></li>
+</ul>
+</div>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="modules.html" class="btn btn-neutral float-right" title="decent_dp" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Zesen Wang.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

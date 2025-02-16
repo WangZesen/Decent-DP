@@ -1,0 +1,522 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>decent_dp.optim &mdash; Decent-DP  documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+    <link rel="shortcut icon" href="../../_static/icon.ico"/>
+    <link rel="canonical" href="https://wangzesen.github.io/Decent-DP/_modules/decent_dp/optim.html" />
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=5929fcd5"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link href="../../_static/style.css" rel="stylesheet" type="text/css">
+
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            Decent-DP
+              <img src="../../_static/icon-light.png" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modules.html">API Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../schema.html">Algorithm Schema</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../topology.html">Communication Topology</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../benchmark.html">Benchmark Tests</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">Decent-DP</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">decent_dp.optim</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for decent_dp.optim</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">math</span>
+<span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">from</span> <span class="nn">torch</span> <span class="kn">import</span> <span class="n">Tensor</span>
+<span class="kn">from</span> <span class="nn">torch.optim.optimizer</span> <span class="kn">import</span> <span class="n">Optimizer</span>
+<span class="kn">from</span> <span class="nn">torch.optim.lr_scheduler</span> <span class="kn">import</span> <span class="n">LRScheduler</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
+
+
+<span class="k">def</span> <span class="nf">_get_param_groups</span><span class="p">(</span><span class="n">params</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]],</span> <span class="n">weight_decay</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the parameters grouped by weight decay and no weight decay.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        dict: a dictionary with two keys, &#39;params&#39; and &#39;params_no_decay&#39;</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">params_no_decay</span> <span class="o">=</span> <span class="p">[</span><span class="n">x</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">params</span> <span class="k">if</span> <span class="ow">not</span> <span class="p">((</span><span class="s1">&#39;bn&#39;</span> <span class="ow">in</span> <span class="n">n</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span><span class="s1">&#39;bias&#39;</span> <span class="ow">in</span> <span class="n">n</span><span class="p">))]</span>
+    <span class="n">params_decay</span> <span class="o">=</span> <span class="p">[</span><span class="n">x</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">params</span> <span class="k">if</span> <span class="p">(</span><span class="s1">&#39;bn&#39;</span> <span class="ow">in</span> <span class="n">n</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span><span class="s1">&#39;bias&#39;</span> <span class="ow">in</span> <span class="n">n</span><span class="p">)]</span>
+
+    <span class="k">return</span> <span class="p">[</span>
+        <span class="p">{</span><span class="s1">&#39;params&#39;</span><span class="p">:</span> <span class="n">params_no_decay</span><span class="p">,</span> <span class="s1">&#39;weight_decay&#39;</span><span class="p">:</span> <span class="mf">0.</span><span class="p">},</span>
+        <span class="p">{</span><span class="s1">&#39;params&#39;</span><span class="p">:</span> <span class="n">params_decay</span><span class="p">,</span> <span class="s1">&#39;weight_decay&#39;</span><span class="p">:</span> <span class="n">weight_decay</span><span class="p">}</span>
+    <span class="p">]</span>
+
+
+<div class="viewcode-block" id="optim_fn_adam">
+<a class="viewcode-back" href="../../decent_dp.html#decent_dp.optim.optim_fn_adam">[docs]</a>
+<span class="k">def</span> <span class="nf">optim_fn_adam</span><span class="p">(</span><span class="n">params</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]],</span>
+                  <span class="n">lr</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-3</span><span class="p">,</span>
+                  <span class="n">beta1</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.9</span><span class="p">,</span>
+                  <span class="n">beta2</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.999</span><span class="p">,</span>
+                  <span class="n">weight_decay</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.</span> <span class="o">/</span> <span class="mi">32768</span><span class="p">,</span>
+                  <span class="n">eps</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-8</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optimizer</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;An example of a function that creates an Adam optimizer with the given parameters and their names.</span>
+<span class="sd">        To change the hyperparameters of the optimizer, you can wrap it with `functools.partial` and pass the new values.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Optimizer: an Adam optimizer</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">Adam</span><span class="p">(</span><span class="n">_get_param_groups</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="n">weight_decay</span><span class="p">),</span>
+                            <span class="n">lr</span><span class="o">=</span><span class="n">lr</span><span class="p">,</span>
+                            <span class="n">betas</span><span class="o">=</span><span class="p">(</span><span class="n">beta1</span><span class="p">,</span> <span class="n">beta2</span><span class="p">),</span>
+                            <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="optim_fn_adamw">
+<a class="viewcode-back" href="../../decent_dp.html#decent_dp.optim.optim_fn_adamw">[docs]</a>
+<span class="k">def</span> <span class="nf">optim_fn_adamw</span><span class="p">(</span><span class="n">params</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]],</span>
+                   <span class="n">lr</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-3</span><span class="p">,</span>
+                   <span class="n">beta1</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.9</span><span class="p">,</span>
+                   <span class="n">beta2</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.999</span><span class="p">,</span>
+                   <span class="n">weight_decay</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">,</span>
+                   <span class="n">eps</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-8</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optimizer</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;An example of a function that creates an AdamW optimizer with the given parameters and their names.</span>
+<span class="sd">        To change the hyperparameters of the optimizer, you can wrap it with `functools.partial` and pass the new values.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Optimizer: an AdamW optimizer</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">AdamW</span><span class="p">(</span><span class="n">_get_param_groups</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="n">weight_decay</span><span class="p">),</span>
+                             <span class="n">lr</span><span class="o">=</span><span class="n">lr</span><span class="p">,</span>
+                             <span class="n">betas</span><span class="o">=</span><span class="p">(</span><span class="n">beta1</span><span class="p">,</span> <span class="n">beta2</span><span class="p">),</span>
+                             <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="optim_fn_accum_adam">
+<a class="viewcode-back" href="../../decent_dp.html#decent_dp.optim.optim_fn_accum_adam">[docs]</a>
+<span class="k">def</span> <span class="nf">optim_fn_accum_adam</span><span class="p">(</span><span class="n">params</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]],</span>
+                        <span class="n">lr</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-3</span><span class="p">,</span>
+                        <span class="n">beta1</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.9</span><span class="p">,</span>
+                        <span class="n">beta2</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.999</span><span class="p">,</span>
+                        <span class="n">eps</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-8</span><span class="p">,</span>
+                        <span class="n">weight_decay</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.</span> <span class="o">/</span> <span class="mi">32768</span><span class="p">,</span>
+                        <span class="n">accum_iter</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optimizer</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;An example of a function that creates an AccumAdam optimizer with the given parameters and their names.</span>
+<span class="sd">        To change the hyperparameters of the optimizer, you can wrap it with `functools.partial` and pass the new values.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Optimizer: an AccumAdam optimizer</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">AccumAdam</span><span class="p">(</span><span class="n">_get_param_groups</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="n">weight_decay</span><span class="p">),</span>
+                     <span class="n">lr</span><span class="o">=</span><span class="n">lr</span><span class="p">,</span>
+                     <span class="n">betas</span><span class="o">=</span><span class="p">(</span><span class="n">beta1</span><span class="p">,</span> <span class="n">beta2</span><span class="p">),</span>
+                     <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span>
+                     <span class="n">accum_iter</span><span class="o">=</span><span class="n">accum_iter</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="optim_fn_accum_adamw">
+<a class="viewcode-back" href="../../decent_dp.html#decent_dp.optim.optim_fn_accum_adamw">[docs]</a>
+<span class="k">def</span> <span class="nf">optim_fn_accum_adamw</span><span class="p">(</span><span class="n">params</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]],</span>
+                         <span class="n">lr</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-3</span><span class="p">,</span>
+                         <span class="n">beta1</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.9</span><span class="p">,</span>
+                         <span class="n">beta2</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.999</span><span class="p">,</span>
+                         <span class="n">eps</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-8</span><span class="p">,</span>
+                         <span class="n">weight_decay</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">,</span>
+                         <span class="n">accum_iter</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optimizer</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;An example of a function that creates an AccumAdamW optimizer with the given parameters and their names.</span>
+<span class="sd">        To change the hyperparameters of the optimizer, you can wrap it with `functools.partial` and pass the new values.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Optimizer: an AccumAdamW optimizer</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">AccumAdamW</span><span class="p">(</span><span class="n">_get_param_groups</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="n">weight_decay</span><span class="p">),</span>
+                      <span class="n">lr</span><span class="o">=</span><span class="n">lr</span><span class="p">,</span>
+                      <span class="n">betas</span><span class="o">=</span><span class="p">(</span><span class="n">beta1</span><span class="p">,</span> <span class="n">beta2</span><span class="p">),</span>
+                      <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span>
+                      <span class="n">accum_iter</span><span class="o">=</span><span class="n">accum_iter</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="lr_scheduler_fn_cosine_with_warmup">
+<a class="viewcode-back" href="../../decent_dp.html#decent_dp.optim.lr_scheduler_fn_cosine_with_warmup">[docs]</a>
+<span class="k">def</span> <span class="nf">lr_scheduler_fn_cosine_with_warmup</span><span class="p">(</span><span class="n">optimizer</span><span class="p">:</span> <span class="n">Optimizer</span><span class="p">,</span>
+                                       <span class="n">t_max</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+                                       <span class="n">t_warmup</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+                                       <span class="n">cosine_eta_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-6</span><span class="p">,</span>
+                                       <span class="n">warmup_decay</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LRScheduler</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;An example of a function that creates a learning rate scheduler that combines a warmup and a cosine annealing schedule.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        LRScheduler: a learning rate scheduler with the linear warmup followed by the cosine annealing</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">main_lr_scheduler</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">lr_scheduler</span><span class="o">.</span><span class="n">CosineAnnealingLR</span><span class="p">(</span><span class="n">optimizer</span><span class="p">,</span> <span class="n">T_max</span><span class="o">=</span><span class="n">t_max</span><span class="p">,</span> <span class="n">eta_min</span><span class="o">=</span><span class="n">cosine_eta_min</span><span class="p">)</span>
+    <span class="n">warmup_lr_scheduler</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">lr_scheduler</span><span class="o">.</span><span class="n">LinearLR</span><span class="p">(</span><span class="n">optimizer</span><span class="p">,</span> <span class="n">start_factor</span><span class="o">=</span><span class="n">warmup_decay</span><span class="p">,</span> <span class="n">total_iters</span><span class="o">=</span><span class="n">t_warmup</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">lr_scheduler</span><span class="o">.</span><span class="n">SequentialLR</span><span class="p">(</span><span class="n">optimizer</span><span class="p">,</span>
+                                                 <span class="n">schedulers</span><span class="o">=</span><span class="p">[</span><span class="n">warmup_lr_scheduler</span><span class="p">,</span> <span class="n">main_lr_scheduler</span><span class="p">],</span>
+                                                 <span class="n">milestones</span><span class="o">=</span><span class="p">[</span><span class="n">t_warmup</span><span class="p">])</span></div>
+
+
+
+<span class="k">def</span> <span class="nf">accum_adamw_foreach</span><span class="p">(</span><span class="n">params</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+                       <span class="n">grads</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+                       <span class="n">exp_avgs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+                       <span class="n">exp_avg_sqs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+                       <span class="n">accum_grads</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+                       <span class="n">state_steps</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+                       <span class="n">beta1</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+                       <span class="n">beta2</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+                       <span class="n">lr</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+                       <span class="n">weight_decay</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+                       <span class="n">eps</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+                       <span class="n">accum_iter</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Optimized version of AccumAdamW optimizer using torch._foreach</span>
+<span class="sd">        TODO: fused kernel</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_add_</span><span class="p">(</span><span class="n">state_steps</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">weight_decay</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_mul_</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">lr</span> <span class="o">*</span> <span class="n">weight_decay</span><span class="p">)</span>
+
+    <span class="n">step</span> <span class="o">=</span> <span class="n">state_steps</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_add_</span><span class="p">(</span><span class="n">accum_grads</span><span class="p">,</span> <span class="n">grads</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">1.</span><span class="o">/</span><span class="n">accum_iter</span><span class="p">)</span>
+
+    <span class="n">_exp_avgs</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_add</span><span class="p">(</span><span class="n">exp_avgs</span><span class="p">,</span> <span class="n">grads</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mi">1</span><span class="o">-</span><span class="n">beta1</span><span class="p">)</span>
+    <span class="n">_exp_avg_sqs</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_addcmul</span><span class="p">(</span><span class="n">exp_avg_sqs</span><span class="p">,</span> <span class="n">grads</span><span class="p">,</span> <span class="n">grads</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="mi">1</span><span class="o">-</span><span class="n">beta2</span><span class="p">)</span>
+
+    <span class="n">bias_correction1</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">beta1</span> <span class="o">**</span> <span class="p">((</span><span class="n">step</span> <span class="o">+</span> <span class="n">accum_iter</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">accum_iter</span><span class="p">)</span>
+    <span class="n">bias_correction2</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">beta2</span> <span class="o">**</span> <span class="p">((</span><span class="n">step</span> <span class="o">+</span> <span class="n">accum_iter</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">accum_iter</span><span class="p">)</span>
+    <span class="n">step_size</span> <span class="o">=</span> <span class="n">lr</span> <span class="o">/</span> <span class="n">bias_correction1</span>
+    <span class="n">bias_correction2_sqrt</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">bias_correction2</span><span class="p">)</span>
+
+    <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_sqrt_</span><span class="p">(</span><span class="n">_exp_avg_sqs</span><span class="p">)</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_div_</span><span class="p">(</span><span class="n">_exp_avg_sqs</span><span class="p">,</span> <span class="n">bias_correction2_sqrt</span><span class="p">)</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_add_</span><span class="p">(</span><span class="n">_exp_avg_sqs</span><span class="p">,</span> <span class="n">eps</span><span class="p">)</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_addcdiv_</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="n">_exp_avgs</span><span class="p">,</span> <span class="n">_exp_avg_sqs</span><span class="p">,</span> <span class="n">value</span><span class="o">=-</span><span class="n">step_size</span><span class="p">)</span> <span class="c1"># type: ignore</span>
+
+    <span class="k">if</span> <span class="n">step</span> <span class="o">%</span> <span class="n">accum_iter</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_add_</span><span class="p">(</span><span class="n">exp_avgs</span><span class="p">,</span> <span class="n">accum_grads</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mi">1</span><span class="o">-</span><span class="n">beta1</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_mul_</span><span class="p">(</span><span class="n">exp_avgs</span><span class="p">,</span> <span class="n">beta1</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_addcmul_</span><span class="p">(</span><span class="n">exp_avg_sqs</span><span class="p">,</span> <span class="n">accum_grads</span><span class="p">,</span> <span class="n">accum_grads</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="mi">1</span><span class="o">-</span><span class="n">beta2</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_mul_</span><span class="p">(</span><span class="n">exp_avg_sqs</span><span class="p">,</span> <span class="n">beta2</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_zero_</span><span class="p">(</span><span class="n">accum_grads</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="AccumAdamW">
+<a class="viewcode-back" href="../../decent_dp.html#decent_dp.optim.AccumAdamW">[docs]</a>
+<span class="k">class</span> <span class="nc">AccumAdamW</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">Optimizer</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;AccumAdamW optimizer</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        params (Any): parameters list or groups</span>
+<span class="sd">        lr (float, optional): base learning rate. Defaults to 1e-3.</span>
+<span class="sd">        betas (Tuple[float, float], optional): beta1 and beta2. Defaults to (0.9, 0.999).</span>
+<span class="sd">        eps (float, optional): epsilon. Defaults to 1e-8.</span>
+<span class="sd">        weight_decay (float, optional): weight decay. Defaults to 0.</span>
+<span class="sd">        accum_iter (int, optional): number of accumulation steps. Defaults to 4. should be scaling up with the number of workers.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                 <span class="n">params</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+                 <span class="n">lr</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-3</span><span class="p">,</span>
+                 <span class="n">betas</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="mf">0.9</span><span class="p">,</span> <span class="mf">0.999</span><span class="p">),</span>
+                 <span class="n">eps</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-8</span><span class="p">,</span>
+                 <span class="n">weight_decay</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+                 <span class="n">accum_iter</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span><span class="p">):</span>
+        <span class="n">defaults</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+            <span class="n">lr</span><span class="o">=</span><span class="n">lr</span><span class="p">,</span>
+            <span class="n">betas</span><span class="o">=</span><span class="n">betas</span><span class="p">,</span>
+            <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span>
+            <span class="n">weight_decay</span><span class="o">=</span><span class="n">weight_decay</span><span class="p">,</span>
+            <span class="n">accum_iter</span><span class="o">=</span><span class="n">accum_iter</span>
+        <span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="n">defaults</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_init_group</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                    <span class="n">group</span><span class="p">,</span>
+                    <span class="n">params_with_grad</span><span class="p">,</span>
+                    <span class="n">grads</span><span class="p">,</span>
+                    <span class="n">exp_avgs</span><span class="p">,</span>
+                    <span class="n">exp_avg_sqs</span><span class="p">,</span>
+                    <span class="n">accum_grads</span><span class="p">,</span>
+                    <span class="n">state_steps</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">group</span><span class="p">[</span><span class="s1">&#39;params&#39;</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">grad</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">params_with_grad</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+                <span class="n">grads</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">grad</span><span class="p">)</span>
+                <span class="n">state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span><span class="p">[</span><span class="n">p</span><span class="p">]</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">state</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">state</span><span class="p">[</span><span class="s1">&#39;step&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span>
+                    <span class="n">state</span><span class="p">[</span><span class="s1">&#39;exp_avg&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">memory_format</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">preserve_format</span><span class="p">)</span>
+                    <span class="n">state</span><span class="p">[</span><span class="s1">&#39;exp_avg_sq&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">memory_format</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">preserve_format</span><span class="p">)</span>
+                    <span class="n">state</span><span class="p">[</span><span class="s1">&#39;accum_grad&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">memory_format</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">preserve_format</span><span class="p">)</span>
+                <span class="n">exp_avgs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">state</span><span class="p">[</span><span class="s1">&#39;exp_avg&#39;</span><span class="p">])</span>
+                <span class="n">exp_avg_sqs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">state</span><span class="p">[</span><span class="s1">&#39;exp_avg_sq&#39;</span><span class="p">])</span>
+                <span class="n">accum_grads</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">state</span><span class="p">[</span><span class="s1">&#39;accum_grad&#39;</span><span class="p">])</span>
+                <span class="n">state_steps</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">state</span><span class="p">[</span><span class="s1">&#39;step&#39;</span><span class="p">])</span>
+
+<div class="viewcode-block" id="AccumAdamW.step">
+<a class="viewcode-back" href="../../decent_dp.html#decent_dp.optim.AccumAdamW.step">[docs]</a>
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
+    <span class="k">def</span> <span class="nf">step</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">closure</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span> <span class="c1"># type: ignore</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cuda_graph_capture_health_check</span><span class="p">()</span>
+        <span class="k">assert</span> <span class="n">closure</span> <span class="ow">is</span> <span class="kc">None</span>
+
+        <span class="k">for</span> <span class="n">group</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">param_groups</span><span class="p">:</span>
+            <span class="n">params_with_grad</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">grads</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">exp_avgs</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">exp_avg_sqs</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">accum_grads</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">state_steps</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">beta1</span><span class="p">,</span> <span class="n">beta2</span> <span class="o">=</span> <span class="n">group</span><span class="p">[</span><span class="s2">&quot;betas&quot;</span><span class="p">]</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">_init_group</span><span class="p">(</span>
+                <span class="n">group</span><span class="p">,</span> <span class="n">params_with_grad</span><span class="p">,</span> <span class="n">grads</span><span class="p">,</span> <span class="n">exp_avgs</span><span class="p">,</span> <span class="n">exp_avg_sqs</span><span class="p">,</span> <span class="n">accum_grads</span><span class="p">,</span> <span class="n">state_steps</span>
+            <span class="p">)</span>
+
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">state_steps</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">continue</span>
+
+            <span class="n">accum_adamw_foreach</span><span class="p">(</span>
+                <span class="n">params_with_grad</span><span class="p">,</span>
+                <span class="n">grads</span><span class="p">,</span>
+                <span class="n">exp_avgs</span><span class="p">,</span>
+                <span class="n">exp_avg_sqs</span><span class="p">,</span>
+                <span class="n">accum_grads</span><span class="p">,</span>
+                <span class="n">state_steps</span><span class="p">,</span>
+                <span class="n">beta1</span><span class="p">,</span>
+                <span class="n">beta2</span><span class="p">,</span>
+                <span class="n">group</span><span class="p">[</span><span class="s1">&#39;lr&#39;</span><span class="p">],</span>
+                <span class="n">group</span><span class="p">[</span><span class="s1">&#39;weight_decay&#39;</span><span class="p">],</span>
+                <span class="n">group</span><span class="p">[</span><span class="s1">&#39;eps&#39;</span><span class="p">],</span>
+                <span class="n">group</span><span class="p">[</span><span class="s1">&#39;accum_iter&#39;</span><span class="p">]</span>
+            <span class="p">)</span></div>
+</div>
+
+
+
+<span class="k">def</span> <span class="nf">accum_adam_foreach</span><span class="p">(</span><span class="n">params</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+                       <span class="n">grads</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+                       <span class="n">exp_avgs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+                       <span class="n">exp_avg_sqs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+                       <span class="n">accum_grads</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+                       <span class="n">state_steps</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+                       <span class="n">beta1</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+                       <span class="n">beta2</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+                       <span class="n">lr</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+                       <span class="n">weight_decay</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+                       <span class="n">eps</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+                       <span class="n">accum_iter</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Optimized version of AccumAdam optimizer using torch._foreach</span>
+<span class="sd">        TODO: write a fused kernel for this</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_add_</span><span class="p">(</span><span class="n">state_steps</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">weight_decay</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_add_</span><span class="p">(</span><span class="n">grads</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="n">weight_decay</span><span class="p">)</span>
+
+    <span class="n">step</span> <span class="o">=</span> <span class="n">state_steps</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_add_</span><span class="p">(</span><span class="n">accum_grads</span><span class="p">,</span> <span class="n">grads</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">1.</span><span class="o">/</span><span class="n">accum_iter</span><span class="p">)</span>
+
+    <span class="n">_exp_avgs</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_add</span><span class="p">(</span><span class="n">exp_avgs</span><span class="p">,</span> <span class="n">grads</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mi">1</span><span class="o">-</span><span class="n">beta1</span><span class="p">)</span>
+    <span class="n">_exp_avg_sqs</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_addcmul</span><span class="p">(</span><span class="n">exp_avg_sqs</span><span class="p">,</span> <span class="n">grads</span><span class="p">,</span> <span class="n">grads</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="mi">1</span><span class="o">-</span><span class="n">beta2</span><span class="p">)</span>
+
+    <span class="n">bias_correction1</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">beta1</span> <span class="o">**</span> <span class="p">((</span><span class="n">step</span> <span class="o">+</span> <span class="n">accum_iter</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">accum_iter</span><span class="p">)</span>
+    <span class="n">bias_correction2</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">beta2</span> <span class="o">**</span> <span class="p">((</span><span class="n">step</span> <span class="o">+</span> <span class="n">accum_iter</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">accum_iter</span><span class="p">)</span>
+    <span class="n">step_size</span> <span class="o">=</span> <span class="n">lr</span> <span class="o">/</span> <span class="n">bias_correction1</span>
+    <span class="n">bias_correction2_sqrt</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">bias_correction2</span><span class="p">)</span>
+
+    <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_sqrt_</span><span class="p">(</span><span class="n">_exp_avg_sqs</span><span class="p">)</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_div_</span><span class="p">(</span><span class="n">_exp_avg_sqs</span><span class="p">,</span> <span class="n">bias_correction2_sqrt</span><span class="p">)</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_add_</span><span class="p">(</span><span class="n">_exp_avg_sqs</span><span class="p">,</span> <span class="n">eps</span><span class="p">)</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_addcdiv_</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="n">_exp_avgs</span><span class="p">,</span> <span class="n">_exp_avg_sqs</span><span class="p">,</span> <span class="n">value</span><span class="o">=-</span><span class="n">step_size</span><span class="p">)</span> <span class="c1"># type: ignore</span>
+
+    <span class="k">if</span> <span class="n">step</span> <span class="o">%</span> <span class="n">accum_iter</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_add_</span><span class="p">(</span><span class="n">exp_avgs</span><span class="p">,</span> <span class="n">accum_grads</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mi">1</span><span class="o">-</span><span class="n">beta1</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_mul_</span><span class="p">(</span><span class="n">exp_avgs</span><span class="p">,</span> <span class="n">beta1</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_addcmul_</span><span class="p">(</span><span class="n">exp_avg_sqs</span><span class="p">,</span> <span class="n">accum_grads</span><span class="p">,</span> <span class="n">accum_grads</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="mi">1</span><span class="o">-</span><span class="n">beta2</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_mul_</span><span class="p">(</span><span class="n">exp_avg_sqs</span><span class="p">,</span> <span class="n">beta2</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_foreach_zero_</span><span class="p">(</span><span class="n">accum_grads</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="AccumAdam">
+<a class="viewcode-back" href="../../decent_dp.html#decent_dp.optim.AccumAdam">[docs]</a>
+<span class="k">class</span> <span class="nc">AccumAdam</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">Optimizer</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;AccumAdamW optimizer</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        params (Any): parameters list or groups</span>
+<span class="sd">        lr (float, optional): base learning rate. Defaults to 1e-3.</span>
+<span class="sd">        betas (Tuple[float, float], optional): beta1 and beta2. Defaults to (0.9, 0.999).</span>
+<span class="sd">        eps (float, optional): epsilon. Defaults to 1e-8.</span>
+<span class="sd">        weight_decay (float, optional): weight decay. Defaults to 0.</span>
+<span class="sd">        accum_iter (int, optional): number of accumulation steps. Defaults to 4. should be scaling up with the number of workers.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                 <span class="n">params</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+                 <span class="n">lr</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-3</span><span class="p">,</span>
+                 <span class="n">betas</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="mf">0.9</span><span class="p">,</span> <span class="mf">0.999</span><span class="p">),</span>
+                 <span class="n">eps</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-8</span><span class="p">,</span>
+                 <span class="n">weight_decay</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.</span> <span class="o">/</span> <span class="mi">32768</span><span class="p">,</span>
+                 <span class="n">accum_iter</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span><span class="p">):</span>
+        <span class="n">defaults</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+            <span class="n">lr</span><span class="o">=</span><span class="n">lr</span><span class="p">,</span>
+            <span class="n">betas</span><span class="o">=</span><span class="n">betas</span><span class="p">,</span>
+            <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span>
+            <span class="n">weight_decay</span><span class="o">=</span><span class="n">weight_decay</span><span class="p">,</span>
+            <span class="n">accum_iter</span><span class="o">=</span><span class="n">accum_iter</span>
+        <span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="n">defaults</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_init_group</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                    <span class="n">group</span><span class="p">,</span>
+                    <span class="n">params_with_grad</span><span class="p">,</span>
+                    <span class="n">grads</span><span class="p">,</span>
+                    <span class="n">exp_avgs</span><span class="p">,</span>
+                    <span class="n">exp_avg_sqs</span><span class="p">,</span>
+                    <span class="n">accum_grads</span><span class="p">,</span>
+                    <span class="n">state_steps</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">group</span><span class="p">[</span><span class="s1">&#39;params&#39;</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">grad</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">params_with_grad</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+                <span class="n">grads</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">grad</span><span class="p">)</span>
+                <span class="n">state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span><span class="p">[</span><span class="n">p</span><span class="p">]</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">state</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">state</span><span class="p">[</span><span class="s1">&#39;step&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span>
+                    <span class="n">state</span><span class="p">[</span><span class="s1">&#39;exp_avg&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">memory_format</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">preserve_format</span><span class="p">)</span>
+                    <span class="n">state</span><span class="p">[</span><span class="s1">&#39;exp_avg_sq&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">memory_format</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">preserve_format</span><span class="p">)</span>
+                    <span class="n">state</span><span class="p">[</span><span class="s1">&#39;accum_grad&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">memory_format</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">preserve_format</span><span class="p">)</span>
+                <span class="n">exp_avgs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">state</span><span class="p">[</span><span class="s1">&#39;exp_avg&#39;</span><span class="p">])</span>
+                <span class="n">exp_avg_sqs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">state</span><span class="p">[</span><span class="s1">&#39;exp_avg_sq&#39;</span><span class="p">])</span>
+                <span class="n">accum_grads</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">state</span><span class="p">[</span><span class="s1">&#39;accum_grad&#39;</span><span class="p">])</span>
+                <span class="n">state_steps</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">state</span><span class="p">[</span><span class="s1">&#39;step&#39;</span><span class="p">])</span>
+
+<div class="viewcode-block" id="AccumAdam.step">
+<a class="viewcode-back" href="../../decent_dp.html#decent_dp.optim.AccumAdam.step">[docs]</a>
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
+    <span class="k">def</span> <span class="nf">step</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">closure</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span> <span class="c1"># type: ignore</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cuda_graph_capture_health_check</span><span class="p">()</span>
+        <span class="k">assert</span> <span class="n">closure</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;Closure is not supported&quot;</span>
+
+        <span class="k">for</span> <span class="n">group</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">param_groups</span><span class="p">:</span>
+            <span class="n">params_with_grad</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">grads</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">exp_avgs</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">exp_avg_sqs</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">accum_grads</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">state_steps</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">beta1</span><span class="p">,</span> <span class="n">beta2</span> <span class="o">=</span> <span class="n">group</span><span class="p">[</span><span class="s2">&quot;betas&quot;</span><span class="p">]</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">_init_group</span><span class="p">(</span>
+                <span class="n">group</span><span class="p">,</span> <span class="n">params_with_grad</span><span class="p">,</span> <span class="n">grads</span><span class="p">,</span> <span class="n">exp_avgs</span><span class="p">,</span> <span class="n">exp_avg_sqs</span><span class="p">,</span> <span class="n">accum_grads</span><span class="p">,</span> <span class="n">state_steps</span>
+            <span class="p">)</span>
+
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">state_steps</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">continue</span>
+
+            <span class="n">accum_adam_foreach</span><span class="p">(</span>
+                <span class="n">params_with_grad</span><span class="p">,</span>
+                <span class="n">grads</span><span class="p">,</span>
+                <span class="n">exp_avgs</span><span class="p">,</span>
+                <span class="n">exp_avg_sqs</span><span class="p">,</span>
+                <span class="n">accum_grads</span><span class="p">,</span>
+                <span class="n">state_steps</span><span class="p">,</span>
+                <span class="n">beta1</span><span class="p">,</span>
+                <span class="n">beta2</span><span class="p">,</span>
+                <span class="n">group</span><span class="p">[</span><span class="s1">&#39;lr&#39;</span><span class="p">],</span>
+                <span class="n">group</span><span class="p">[</span><span class="s1">&#39;weight_decay&#39;</span><span class="p">],</span>
+                <span class="n">group</span><span class="p">[</span><span class="s1">&#39;eps&#39;</span><span class="p">],</span>
+                <span class="n">group</span><span class="p">[</span><span class="s1">&#39;accum_iter&#39;</span><span class="p">]</span>
+            <span class="p">)</span></div>
+</div>
+
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s1">&#39;optim_fn_adam&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;optim_fn_adamw&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;optim_fn_accum_adam&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;optim_fn_accum_adamw&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;lr_scheduler_fn_cosine_with_warmup&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;AccumAdam&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;AccumAdamW&#39;</span>
+<span class="p">]</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Zesen Wang.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
