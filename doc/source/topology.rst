@@ -40,7 +40,13 @@ A new topology should fulfill the following requirements:
             weight: float
             group: Optional[ProcessGroup] = None
     
-    where `rank` is the list of ranks of the workers involved in the communication operation, `weight` defines the fraction of the message that each worker keeps. For example, if the weight is 0.3, then the worker keeps 30% of its message and shares 70% with other workers. :math:`x_i = x_i * weight + \sum_{j \in \text{ranks}} x_j * (1 - weight) / \text{len(ranks)}`. The weight should be between 0 and 1 for convergence.
+    where `rank` is the list of ranks of the workers involved in the communication operation, `weight` defines the fraction of the message that each worker keeps. For example, if the weight is 0.3, then the worker keeps 30% of its message and shares 70% with other workers. 
+
+    .. math::
+
+        x_i = w\cdot x_i + (1-w)\cdot\frac{1}{|\text{ranks}|-1}\sum_{j \in \text{ranks},j\neq i} x_j
+    
+    where :math:`w` is the weight and :math:`\text{ranks}` is the ranks of the workers participating in this communication. The weight should be between 0 and 1 for convergence.
 
 - In the topology, each worker should be involved in exactly one communication operation (or `Edge`).
 
