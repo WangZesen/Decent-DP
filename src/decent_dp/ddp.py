@@ -68,7 +68,6 @@ class DecentralizedDataParallel(Module):
         
         super(DecentralizedDataParallel, self).__init__()
         assert dist.is_available() and dist.is_initialized(), 'Distributed environment is not initialized'
-        # assert torch.cuda.is_available(), 'CUDA is not available'
 
         self._model = model.cuda() if torch.cuda.is_available() else model
         self._optim_fn = optim_fn
@@ -80,13 +79,14 @@ class DecentralizedDataParallel(Module):
         self._bucket_size = bucket_size_in_mb * 1024 * 1024
         self._local_world_size = _local_world_size if _local_world_size is not None else int(os.environ.get('LOCAL_WORLD_SIZE', 1))
 
-        # check if the model is with "channels_last" memory format
-        if self._check_channels_last():
-            raise NotImplementedError('DecentralizedDataParallel currently does not support "channels_last" memory format')
-
         # get the rank and world size
         self._rank = dist.get_rank()
         self._world_size = dist.get_world_size()
+
+        # check if the model is with "channels_last" memory format
+        if self._check_channels_last():
+            if self._rank == 0:
+                logger.debug(f'The model is with "channels_last" memory format')
 
         if self._rank == 0:
             logger.debug(f'Initializing Decentralized Data Parallel')
@@ -243,10 +243,11 @@ class DecentralizedDataParallel(Module):
             scheduler.step()
 
         # launch the next communication after updating the weights
-        if not self._param_as_bucket_view:
-            torch._foreach_copy_(self._comm_buffers[bucket_id], self._param_buckets[bucket_id])
-        else:
+        if self._param_as_bucket_view:
             self._comm_blocks[bucket_id].copy_(self._param_blocks[bucket_id])
+        else:
+            torch._foreach_copy_(self._comm_buffers[bucket_id], self._param_buckets[bucket_id])
+
         edge = self._topo.get_edge(self._step + 1)
         weight = edge.weight
         self._comm_blocks[bucket_id].mul_((1 - weight) / (len(edge.ranks) - 1))
@@ -282,7 +283,7 @@ class DecentralizedDataParallel(Module):
         start = 0
         size = 0
         for i in range(len(self._traced_param_ids)):
-            size += self._align(self._params[self._traced_param_ids[i]].numel() * self._params[self._traced_param_ids[i]].element_size())
+            size += self._align(self._params[self._traced_param_ids[i]].numel()) * self._params[self._traced_param_ids[i]].element_size()
             if (size >= self._bucket_size) or (i == len(self._traced_param_ids) - 1):
                 # register hooks on the last parameter of each bucket, passing the bucket id
                 self._ddp_hooks.append(
@@ -314,10 +315,10 @@ class DecentralizedDataParallel(Module):
             size_dict[total_size] = True
 
             # create the communication buffer for each bucket
-            comm_buffer = torch.zeros(total_size,
-                                      device=self._param_buckets[i][0].device,
-                                      requires_grad=False,
-                                      dtype=self._param_buckets[i][0].dtype)
+            comm_block = torch.zeros(total_size,
+                                     device=self._param_buckets[i][0].device,
+                                     requires_grad=False,
+                                     dtype=self._param_buckets[i][0].dtype)
 
             if self._param_as_bucket_view:
                 # create contiguous blocks for each bucket, and let the parameters be views of the fragments of the block
@@ -328,8 +329,8 @@ class DecentralizedDataParallel(Module):
                 start = 0
                 for j in range(len(self._param_buckets[i])):
                     size = self._param_buckets[i][j].numel()
-                    # TODO: verify the support for "channels_last" memory format
-                    if False: # (len(self._param_buckets[i][j].shape) == 4) and self._is_channels_last:
+                    if (len(self._param_buckets[i][j].shape) == 4) and self._param_buckets[i][j].is_contiguous(memory_format=torch.channels_last) \
+                        and (not self._param_buckets[i][j].is_contiguous()):
                         # permute the tensor to the channels_last format
                         self._param_blocks[-1].narrow(0, start, size).copy_(self._param_buckets[i][j].permute(0, 2, 3, 1).view(-1))
                         self._param_buckets[i][j].data = self._param_blocks[-1].narrow(0, start, size).view(
@@ -338,22 +339,36 @@ class DecentralizedDataParallel(Module):
                              self._param_buckets[i][j].shape[3],
                              self._param_buckets[i][j].shape[1])
                         ).permute(0, 3, 1, 2)
+                        assert self._param_buckets[i][j].is_contiguous(memory_format=torch.channels_last)
+                        assert not self._param_buckets[i][j].is_contiguous()
                     else:
                         # otherwise, copy the tensor directly
-                        self._param_blocks[-1].narrow(0, start, size).copy_(self._param_buckets[i][j].contiguous(memory_format=torch.contiguous_format).view(-1))
+                        assert self._param_buckets[i][j].is_contiguous()
+                        self._param_blocks[-1].narrow(0, start, size).copy_(self._param_buckets[i][j].view(-1))
                         self._param_buckets[i][j].data = self._param_blocks[-1].narrow(0, start, size).view_as(self._param_buckets[i][j])
                     start += self._align(size)
 
-            self._comm_blocks.append(comm_buffer)
+            self._comm_blocks.append(comm_block)
             start = 0
             self._comm_buffers.append([])
             for j in range(len(self._param_buckets[i])):
                 size = self._param_buckets[i][j].numel()
-                self._comm_buffers[-1].append(comm_buffer.narrow(0, start, size).view_as(self._param_buckets[i][j]))
+                if (len(self._param_buckets[i][j].shape) == 4) and self._param_buckets[i][j].is_contiguous(memory_format=torch.channels_last) \
+                    and (not self._param_buckets[i][j].is_contiguous()):
+                    # permute the tensor to the channels_last format
+                    self._comm_buffers[-1].append(comm_block.narrow(0, start, size).view(
+                        (self._param_buckets[i][j].shape[0],
+                         self._param_buckets[i][j].shape[2],
+                         self._param_buckets[i][j].shape[3],
+                         self._param_buckets[i][j].shape[1])
+                    ).permute(0, 3, 1, 2))
+                else:
+                    self._comm_buffers[-1].append(comm_block.narrow(0, start, size).view_as(self._param_buckets[i][j]))
                 start += self._align(size)
 
                 # attach the communication buffer to the parameter for "pre_average_hook" in the optimizer
-                setattr(self._param_buckets[i][j], 'comm_buffer', self._comm_buffers[-1][-1])
+                if hasattr(self._optims[i], 'pre_average_hook'):
+                    setattr(self._param_buckets[i][j], 'comm_buffer', self._comm_buffers[-1][-1])
             
             # initialize the communication buffer with the initial parameters
             torch._foreach_copy_(self._comm_buffers[-1], self._param_buckets[i])
