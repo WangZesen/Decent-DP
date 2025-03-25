@@ -1,21 +1,17 @@
 # Decentralized Data Parallel (Decent-DP)
 
+**Decent-DP** is a cutting-edge PyTorch extension designed to simplify and accelerate decentralized data parallel training. As the official implementation of the paper [**[ICLR'25] From Promise to Practice: Realizing High-performance Decentralized Training**](https://github.com/WangZesen/Decentralized-Training-Exp), Decent-DP empowers you to scale multi-worker training efficiently—eliminating centralized bottlenecks and streamlining your deep learning pipelines.
+
+[![arXiv](https://img.shields.io/badge/arXiv-2401.11998-b31b1b?logo=arxiv&logoColor=white)](https://arxiv.org/abs/2410.11998) 
+[![OpenReview](https://img.shields.io/badge/OpenReview-Paper-blue)](https://openreview.net/forum?id=lo3nlFHOft)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PyTorch Extension](https://img.shields.io/badge/PyTorch-Extension-brightgreen.svg)](https://pytorch.org/)
-[![ICLR 2025](https://img.shields.io/badge/ICLR-2025-ff69b4.svg)](https://iclr.cc/)
 
 <p align="center">
   <img src="./doc/source/_static/icon-light.png" alt="Icon created by zero_wing - Flaticon"/>
 </p>
 
-
-## Overview
-
-**Decent-DP** is a cutting-edge PyTorch extension designed to simplify and accelerate decentralized data parallel training. As the official implementation of the paper **"From Promise to Practice: Realizing High-performance Decentralized Training"** (accepted at ICLR 2025), Decent-DP empowers you to scale multi-worker training efficiently—eliminating centralized bottlenecks and streamlining your deep learning pipelines.
-
----
-
-## Key Features
+## ✨ Key Features
 
 - **Decentralized Architecture**  
   Efficiently distributes training across multiple workers without relying on a central coordinator.
@@ -29,9 +25,9 @@
 - **Flexible and Extensible**  
   Supports various algorithmic schemas to suit different training scenarios and model architectures.
 
----
 
-## Installation
+
+## ⚙️ Installation
 
 ### Prerequisites
 
@@ -56,9 +52,8 @@ cd Decent-DP
 pip install -e .
 ```
 
----
 
-## Quickstart
+## 🚀 Quickstart
 
 Here is a pseudocode exmaple of how to use Decent-DP to train a model
 
@@ -105,25 +100,29 @@ Here is a pseudocode exmaple of how to use Decent-DP to train a model
 
 Launch the script on multiple processes/nodes using [`torchrun`](https://pytorch.org/docs/stable/elastic/run.html).
 
----
 
-## Documentation
+
+## 📖 Documentation
 
 Comprehensive documentation, including tutorials, API references, and performance tips, is available on the Github page: **[Decent-DP Documentation](https://wangzesen.github.io/Decent-DP)**
 
----
 
-## Citation
+## 📝 Citation
 
 If you use Decent-DP in your research, please cite our work:
 
-- **From Promise to Practice: Realizing High-performance Decentralized Training**  
-  - [arXiv Version](https://arxiv.org/abs/2410.11998)  
-  - [OpenReview](https://openreview.net/forum?id=lo3nlFHOft)
 
----
+```bibtex
+@article{wang2024decentralized,
+  title={From Promise to Practice: Realizing High-Performance Decentralized Training},
+  author={Wang, Zesen and Zhang, Jiaojiao and Wu, Xuyang and Johansson, Mikael},
+  journal={arXiv preprint arXiv:2410.11998},
+  year={2024}
+}
+```
 
-## Contributing
+
+## 🤝 Contributing
 
 We welcome contributions from the community!  
 To get involved:
@@ -135,17 +134,17 @@ To get involved:
 
 ---
 
-## License
+## 🧾 License
 
 Decent-DP is released under the [MIT License](LICENSE).
 
 ---
 
-## Acknowledgments
+## 🙏 Acknowledgments
 
 The computations and storage resources were enabled by resources provided by the National Academic Infrastructure for Supercomputing in Sweden (NAISS), partially funded by the Swedish Research Council through grant agreement no. 2022-06725.
 
 ---
 
-Happy training with Decent-DP!
+🚀 Happy training with Decent-DP!
 
