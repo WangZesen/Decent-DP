@@ -1,0 +1,361 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>decent_dp.topo &mdash; Decent-DP  documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+    <link rel="shortcut icon" href="../../_static/icon.ico"/>
+    <link rel="canonical" href="https://wangzesen.github.io/Decent-DP/_modules/decent_dp/topo.html" />
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=5929fcd5"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link href="../../_static/style.css" rel="stylesheet" type="text/css">
+
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            Decent-DP
+              <img src="../../_static/icon-light.png" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modules.html">API Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../schema.html">Algorithm Schema</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../topology.html">Communication Topology</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../benchmark.html">Benchmark Tests</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">Decent-DP</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">decent_dp.topo</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for decent_dp.topo</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">math</span>
+<span class="kn">from</span> <span class="nn">loguru</span> <span class="kn">import</span> <span class="n">logger</span>
+<span class="kn">import</span> <span class="nn">torch.distributed</span> <span class="k">as</span> <span class="nn">dist</span>
+<span class="kn">from</span> <span class="nn">torch.distributed</span> <span class="kn">import</span> <span class="n">ProcessGroup</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">cast</span>
+<span class="kn">from</span> <span class="nn">dataclasses</span> <span class="kn">import</span> <span class="n">dataclass</span>
+
+<div class="viewcode-block" id="Edge">
+<a class="viewcode-back" href="../../decent_dp.html#decent_dp.topo.Edge">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span> <span class="nc">Edge</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Edge class for defining communication patterns among workers.</span>
+
+<span class="sd">    Weight defines the fraction of the message that each worker keeps. For example, if the weight is 0.3, \</span>
+<span class="sd">        then the worker keeps 30% of its message and shares 70% with other workers. \</span>
+<span class="sd">        $x_i = x_i * weight + \\sum_{j \\in \\text{ranks}} x_j * (1 - weight) / \\text{len(ranks)}$. \</span>
+<span class="sd">        The weight should be between 0 and 1 for convergence.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        ranks (List[int]): List of ranks of workers that communicate in this edge</span>
+<span class="sd">        weights (List[float]): List of weights for each worker in the edge (required to be the same length as ranks)</span>
+<span class="sd">        group (Optional[ProcessGroup]): Process group for the edge, which will be created by Topology class</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">ranks</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span>
+    <span class="n">weight</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">group</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ProcessGroup</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span></div>
+
+
+
+<div class="viewcode-block" id="Topology">
+<a class="viewcode-back" href="../../decent_dp.html#decent_dp.topo.Topology">[docs]</a>
+<span class="k">class</span> <span class="nc">Topology</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">local_world_size</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&#39;&#39;&#39;Topology class for defining communication patterns between workers.</span>
+
+<span class="sd">        The class is responsible for creating process groups for each edge in the topology.</span>
+<span class="sd">        The edges are defined as a list of lists of Edge objects, where each list of edges \</span>
+<span class="sd">            corresponds to one iteration of the communication pattern.</span>
+<span class="sd">        The topology is defined by implementing the _get_topo_edges method, which should return \</span>
+<span class="sd">            a list of lists of Edge objects. When creating a new topology, the method should be \</span>
+<span class="sd">            implemented to return the edges for the topology. Usable variables are `self._world_size`, \</span>
+<span class="sd">            `self._local_world_size`, and `self._n_nodes` for the number of processes, processes per node, \</span>
+<span class="sd">            and number of nodes, respectively.</span>
+<span class="sd">        A valid topology is one where each node participates in exactly one communication in each iteration.</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            local_world_size (int): Number of processes in each node (added as argument for some testing \</span>
+<span class="sd">                purposes, should be set as the environment variable LOCAL_WORLD_SIZE for normal cases)</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+
+        <span class="k">assert</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="ow">and</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_initialized</span><span class="p">(),</span> <span class="s2">&quot;Distributed environment is not initialized&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_rank</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">dist</span><span class="o">.</span><span class="n">get_rank</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span> <span class="o">=</span> <span class="n">dist</span><span class="o">.</span><span class="n">get_world_size</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span> <span class="o">=</span> <span class="n">local_world_size</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span> <span class="o">%</span> <span class="n">local_world_size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;World size must be divisible by local world size, </span><span class="se">\</span>
+<span class="s2">            but </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span><span class="si">}</span><span class="s2"> is not divisible by </span><span class="si">{</span><span class="n">local_world_size</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_n_nodes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span> <span class="o">//</span> <span class="n">local_world_size</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_registry</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ProcessGroup</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_edges</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Edge</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_create_edges</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_create_edges</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create process groups for each &quot;edge&quot; (or group) in the topology</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">all_edges</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_topo_edges</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_validate_edges</span><span class="p">(</span><span class="n">all_edges</span><span class="p">)</span>
+
+        <span class="c1"># Create default group</span>
+        <span class="n">all_ranks</span> <span class="o">=</span> <span class="p">[</span><span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span><span class="p">)]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_registry</span><span class="p">[</span><span class="s1">&#39;all&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">cast</span><span class="p">(</span><span class="n">ProcessGroup</span><span class="p">,</span> <span class="n">dist</span><span class="o">.</span><span class="n">new_group</span><span class="p">(</span><span class="n">all_ranks</span><span class="p">))</span>
+
+        <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">all_edges</span><span class="p">)):</span>
+            <span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">all_edges</span><span class="p">[</span><span class="n">idx</span><span class="p">]:</span>
+                <span class="n">identifier</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">edge</span><span class="o">.</span><span class="n">ranks</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="n">identifier</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_registry</span><span class="p">):</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_registry</span><span class="p">[</span><span class="n">identifier</span><span class="p">]</span> <span class="o">=</span> <span class="n">cast</span><span class="p">(</span><span class="n">ProcessGroup</span><span class="p">,</span> <span class="n">dist</span><span class="o">.</span><span class="n">new_group</span><span class="p">(</span><span class="n">edge</span><span class="o">.</span><span class="n">ranks</span><span class="p">))</span>
+                <span class="n">edge</span><span class="o">.</span><span class="n">group</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_registry</span><span class="p">[</span><span class="n">identifier</span><span class="p">]</span>
+        
+        <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">all_edges</span><span class="p">)):</span>
+            <span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">all_edges</span><span class="p">[</span><span class="n">idx</span><span class="p">]:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_rank</span> <span class="ow">in</span> <span class="n">edge</span><span class="o">.</span><span class="n">ranks</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_edges</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">edge</span><span class="p">)</span>
+                    <span class="k">break</span>
+
+    <span class="k">def</span> <span class="nf">_validate_edges</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">edges</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Edge</span><span class="p">]]):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Verify that the topology is valid. A valid topology is one where each \</span>
+<span class="sd">            node participates in exactly communication in each iteration</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            edges (List[List[Edge]]): List of edges for each iteration</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">edges</span><span class="p">)):</span>
+            <span class="n">used</span> <span class="o">=</span> <span class="p">[</span><span class="kc">False</span><span class="p">]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span>
+            <span class="k">for</span> <span class="n">edge</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">[</span><span class="n">idx</span><span class="p">]:</span>
+                <span class="n">edge</span><span class="o">.</span><span class="n">ranks</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+                <span class="k">for</span> <span class="n">rank</span> <span class="ow">in</span> <span class="n">edge</span><span class="o">.</span><span class="n">ranks</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">used</span><span class="p">[</span><span class="n">rank</span><span class="p">]:</span>
+                        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Topology is not valid, node </span><span class="si">{</span><span class="n">rank</span><span class="si">}</span><span class="s2"> is used more than once in one iteration&quot;</span><span class="p">)</span>
+                        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">()</span>
+                    <span class="n">used</span><span class="p">[</span><span class="n">rank</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span><span class="n">used</span><span class="p">):</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Topology is not valid, some nodes are not involved in an edge in one iteration&quot;</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">()</span>
+
+<div class="viewcode-block" id="Topology.get_edge">
+<a class="viewcode-back" href="../../decent_dp.html#decent_dp.topo.Topology.get_edge">[docs]</a>
+    <span class="k">def</span> <span class="nf">get_edge</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Edge</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the edge for the given iteration</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_edges</span><span class="p">[</span><span class="n">step</span> <span class="o">%</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_edges</span><span class="p">)]</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_get_topo_edges</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Edge</span><span class="p">]]:</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="TopologyReg">
+<a class="viewcode-back" href="../../decent_dp.html#decent_dp.topo.TopologyReg">[docs]</a>
+<span class="k">class</span> <span class="nc">TopologyReg</span><span class="p">:</span>
+    <span class="n">registry</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">type</span><span class="p">[</span><span class="n">Topology</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+
+<div class="viewcode-block" id="TopologyReg.register">
+<a class="viewcode-back" href="../../decent_dp.html#decent_dp.topo.TopologyReg.register">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">register</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">:</span>
+        <span class="k">def</span> <span class="nf">_register</span><span class="p">(</span><span class="n">topology</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">type</span><span class="p">[</span><span class="n">Topology</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">registry</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Topology </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> already registered&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">Topology</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Topology </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> must extend class Topology&quot;</span><span class="p">)</span>
+            <span class="bp">cls</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">topology</span>
+            <span class="k">return</span> <span class="n">topology</span>
+        <span class="k">return</span> <span class="n">_register</span></div>
+</div>
+
+
+
+<span class="nd">@TopologyReg</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="s1">&#39;complete&#39;</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">CompleteTopology</span><span class="p">(</span><span class="n">Topology</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Complete topology where each node communicates with all other nodes. The weights are 1/n.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">_get_topo_edges</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Edge</span><span class="p">]]:</span>
+        <span class="k">return</span> <span class="p">[[</span><span class="n">Edge</span><span class="p">(</span>
+            <span class="n">ranks</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span><span class="p">)),</span>
+            <span class="n">weight</span><span class="o">=</span><span class="mf">1.0</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span><span class="p">,</span>
+        <span class="p">)]]</span>
+
+
+<span class="nd">@TopologyReg</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="s1">&#39;ring&#39;</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">RingTopology</span><span class="p">(</span><span class="n">Topology</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One-peer ring topology where each node communicates with one of its left and right \</span>
+<span class="sd">        neighbors (by index) in each iteration. The weights are 0.5 for each neighbor.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">_get_topo_edges</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Edge</span><span class="p">]]:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span> <span class="o">%</span> <span class="mi">2</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s1">&#39;Ring topology is not supported for odd world size&#39;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">()</span>
+
+        <span class="n">edges</span> <span class="o">=</span> <span class="p">[[],</span> <span class="p">[]]</span>
+        <span class="c1"># Odd iterations</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span><span class="p">,</span> <span class="mi">2</span><span class="p">):</span>
+            <span class="n">edges</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Edge</span><span class="p">(</span>
+                <span class="n">ranks</span><span class="o">=</span><span class="nb">sorted</span><span class="p">([</span><span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span><span class="p">]),</span>
+                <span class="n">weight</span><span class="o">=</span><span class="mf">0.5</span>
+            <span class="p">))</span>
+        <span class="c1"># Even iterations</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span><span class="p">,</span> <span class="mi">2</span><span class="p">):</span>
+            <span class="n">edges</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Edge</span><span class="p">(</span>
+                <span class="n">ranks</span><span class="o">=</span><span class="nb">sorted</span><span class="p">([</span><span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">i</span> <span class="o">-</span> <span class="mi">1</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span><span class="p">)</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span><span class="p">]),</span>
+                <span class="n">weight</span><span class="o">=</span><span class="mf">0.5</span>
+            <span class="p">))</span>
+        <span class="k">return</span> <span class="n">edges</span>
+
+
+<span class="nd">@TopologyReg</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="s1">&#39;one-peer-exp&#39;</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">OnePeerExpTopology</span><span class="p">(</span><span class="n">Topology</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One-peer exponential topology.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">_get_topo_edges</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Edge</span><span class="p">]]:</span>
+        <span class="n">rounds</span> <span class="o">=</span> <span class="nb">round</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">log2</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span><span class="p">))</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span> <span class="o">!=</span> <span class="mi">2</span> <span class="o">**</span> <span class="n">rounds</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s1">&#39;Exponential topology is only supported for 2^x world size&#39;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">()</span>
+
+        <span class="n">edges</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">rounds</span><span class="p">):</span>
+            <span class="n">edges</span><span class="o">.</span><span class="n">append</span><span class="p">([])</span>
+            <span class="n">used</span> <span class="o">=</span> <span class="p">[</span><span class="kc">False</span><span class="p">]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span>
+            <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span><span class="p">):</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">used</span><span class="p">[</span><span class="n">j</span><span class="p">]:</span>
+                    <span class="n">used</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+                    <span class="n">used</span><span class="p">[(</span><span class="n">j</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">**</span> <span class="n">i</span><span class="p">)</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+                    <span class="n">edges</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Edge</span><span class="p">(</span>
+                        <span class="n">ranks</span><span class="o">=</span><span class="nb">sorted</span><span class="p">([</span><span class="n">j</span><span class="p">,</span> <span class="p">(</span><span class="n">j</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">**</span> <span class="n">i</span><span class="p">)</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span><span class="p">]),</span>
+                        <span class="n">weight</span><span class="o">=</span><span class="mf">0.5</span>
+                    <span class="p">))</span>
+        <span class="k">return</span> <span class="n">edges</span>
+
+
+<span class="nd">@TopologyReg</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="s1">&#39;alternating-exp-ring&#39;</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">AlternatingExpRingTopology</span><span class="p">(</span><span class="n">Topology</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">_get_topo_edges</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Edge</span><span class="p">]]:</span>
+        <span class="n">rounds</span> <span class="o">=</span> <span class="nb">round</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">log2</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_n_nodes</span><span class="p">))</span>
+        <span class="k">if</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_n_nodes</span> <span class="o">!=</span> <span class="mi">2</span> <span class="o">**</span> <span class="n">rounds</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span><span class="n">rounds</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">):</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s1">&#39;Exponential ring topology is only supported for 2^x nodes and x &gt; 1&#39;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">()</span>
+        <span class="n">edges</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">cnt</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">rounds</span><span class="p">):</span>
+            <span class="n">edges</span><span class="o">.</span><span class="n">append</span><span class="p">([])</span>
+            <span class="n">edges</span><span class="o">.</span><span class="n">append</span><span class="p">([])</span>
+            <span class="n">used</span> <span class="o">=</span> <span class="p">[</span><span class="kc">False</span><span class="p">]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_n_nodes</span>
+            <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_n_nodes</span><span class="p">):</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">used</span><span class="p">[</span><span class="n">j</span><span class="p">]:</span>
+                    <span class="n">used</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+                    <span class="n">t</span> <span class="o">=</span> <span class="p">(</span><span class="n">j</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">**</span> <span class="n">i</span><span class="p">)</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">_n_nodes</span>
+                    <span class="n">used</span><span class="p">[</span><span class="n">t</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+                    <span class="k">if</span> <span class="n">cnt</span> <span class="o">%</span> <span class="mi">2</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                        <span class="n">edges</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Edge</span><span class="p">(</span>
+                            <span class="n">ranks</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">j</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span><span class="p">,</span> <span class="p">(</span><span class="n">j</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span><span class="p">))</span> <span class="o">+</span> \
+                                  <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">t</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span><span class="p">,</span> <span class="p">(</span><span class="n">t</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span><span class="p">)),</span>
+                            <span class="n">weight</span><span class="o">=</span><span class="mf">1.</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span> <span class="o">/</span> <span class="mf">2.</span>
+                        <span class="p">))</span>
+                        <span class="n">edges</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Edge</span><span class="p">(</span>
+                            <span class="n">ranks</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">j</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span><span class="p">,</span> <span class="p">(</span><span class="n">j</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span><span class="p">)),</span>
+                            <span class="n">weight</span><span class="o">=</span><span class="mf">1.</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span>
+                        <span class="p">))</span>
+                        <span class="n">edges</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Edge</span><span class="p">(</span>
+                            <span class="n">ranks</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">t</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span><span class="p">,</span> <span class="p">(</span><span class="n">t</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span><span class="p">)),</span>
+                            <span class="n">weight</span><span class="o">=</span><span class="mf">1.</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span>
+                        <span class="p">))</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">edges</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Edge</span><span class="p">(</span>
+                            <span class="n">ranks</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">j</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span><span class="p">,</span> <span class="p">(</span><span class="n">j</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span><span class="p">)),</span>
+                            <span class="n">weight</span><span class="o">=</span><span class="mf">1.</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span>
+                        <span class="p">))</span>
+                        <span class="n">edges</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Edge</span><span class="p">(</span>
+                            <span class="n">ranks</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">t</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span><span class="p">,</span> <span class="p">(</span><span class="n">t</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span><span class="p">)),</span>
+                            <span class="n">weight</span><span class="o">=</span><span class="mf">1.</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span>
+                        <span class="p">))</span>
+                        <span class="n">edges</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Edge</span><span class="p">(</span>
+                            <span class="n">ranks</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">j</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span><span class="p">,</span> <span class="p">(</span><span class="n">j</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span><span class="p">))</span> <span class="o">+</span> \
+                                  <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">t</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span><span class="p">,</span> <span class="p">(</span><span class="n">t</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span><span class="p">)),</span>
+                            <span class="n">weight</span><span class="o">=</span><span class="mf">1.</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local_world_size</span> <span class="o">/</span> <span class="mf">2.</span>
+                        <span class="p">))</span>
+                    <span class="n">cnt</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">return</span> <span class="n">edges</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;Topology&#39;</span><span class="p">,</span> <span class="s1">&#39;TopologyReg&#39;</span><span class="p">,</span> <span class="s1">&#39;Edge&#39;</span><span class="p">]</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Zesen Wang.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,198 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Communication topology &mdash; Decent-DP  documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+    <link rel="shortcut icon" href="_static/icon.ico"/>
+    <link rel="canonical" href="https://wangzesen.github.io/Decent-DP/topology.html" />
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=5929fcd5"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Benchmark tests" href="benchmark.html" />
+    <link rel="prev" title="Algorithm schemas" href="schema.html" />
+    <link href="_static/style.css" rel="stylesheet" type="text/css">
+
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            Decent-DP
+              <img src="_static/icon-light.png" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="modules.html">API Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="schema.html">Algorithm Schema</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Communication Topology</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#supported-topologies">Supported topologies</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#how-to-register-a-new-topology">How to register a new topology</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="benchmark.html">Benchmark Tests</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Decent-DP</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Communication topology</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/topology.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="communication-topology">
+<h1>Communication topology<a class="headerlink" href="#communication-topology" title="Link to this heading"></a></h1>
+<section id="supported-topologies">
+<h2>Supported topologies<a class="headerlink" href="#supported-topologies" title="Link to this heading"></a></h2>
+<ul>
+<li><p><cite>complete</cite>: Fully connected topology where workers do AllReduce with all other workers.</p></li>
+<li><p><cite>ring</cite>: One-peer ring topology where workers do AllReduce with one of its two neighbors with adjacent ranks in each iteration.</p>
+<blockquote>
+<div><a class="reference internal image-reference" href="_images/topo_one-peer-ring.png"><img alt="_images/topo_one-peer-ring.png" class="align-center" src="_images/topo_one-peer-ring.png" style="width: 40%;" />
+</a>
+</div></blockquote>
+</li>
+<li><p><cite>exp</cite>: Exponential topology where worker <span class="math notranslate nohighlight">\(i\)</span> do AllReduce with worker <span class="math notranslate nohighlight">\((i+2^{t \mod \log_2(n)}) \mod n\)</span> for <span class="math notranslate nohighlight">\(t\)</span>-th iteration, where <span class="math notranslate nohighlight">\(n\)</span> is the number of workers.</p>
+<blockquote>
+<div><a class="reference internal image-reference" href="_images/topo_exp.png"><img alt="_images/topo_exp.png" class="align-center" src="_images/topo_exp.png" style="width: 80%;" />
+</a>
+</div></blockquote>
+</li>
+<li><p><cite>alternating-exp-ring</cite>: Alternating exponential ring topology (described in Figure 12 in the paper).</p>
+<blockquote>
+<div><a class="reference internal image-reference" href="_images/topo_alternating-exp-ring.png"><img alt="_images/topo_alternating-exp-ring.png" class="align-center" src="_images/topo_alternating-exp-ring.png" style="width: 80%;" />
+</a>
+</div></blockquote>
+</li>
+</ul>
+</section>
+<section id="how-to-register-a-new-topology">
+<h2>How to register a new topology<a class="headerlink" href="#how-to-register-a-new-topology" title="Link to this heading"></a></h2>
+<p>A new topology should fulfill the following requirements:
+- The topology should be a subclass of <cite>Topology</cite>.
+- The topology should implement the method: <cite>_get_topo_edges</cite> which return topology described by <cite>List[List[Edge]]</cite> which is the list of edges for each worker and for each iteration.</p>
+<blockquote>
+<div><p>The <cite>Edge</cite> class is defined as follows:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@dataclass</span>
+<span class="k">class</span> <span class="nc">Edge</span><span class="p">:</span>
+    <span class="n">ranks</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span>
+    <span class="n">weight</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">group</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ProcessGroup</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</pre></div>
+</div>
+<p>where <cite>rank</cite> is the list of ranks of the workers involved in the communication operation, <cite>weight</cite> defines the fraction of the message that each worker keeps. For example, if the weight is 0.3, then the worker keeps 30% of its message and shares 70% with other workers.</p>
+<div class="math notranslate nohighlight">
+\[x_i = w\cdot x_i + (1-w)\cdot\frac{1}{|\text{ranks}|-1}\sum_{j \in \text{ranks},j\neq i} x_j\]</div>
+<p>where <span class="math notranslate nohighlight">\(w\)</span> is the weight and <span class="math notranslate nohighlight">\(\text{ranks}\)</span> is the ranks of the workers participating in this communication. The weight should be between 0 and 1 for convergence.</p>
+</div></blockquote>
+<ul class="simple">
+<li><p>In the topology, each worker should be involved in exactly one communication operation (or <cite>Edge</cite>).</p></li>
+</ul>
+<p>An example of registering the ring topology is shown below:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@TopologyReg</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="s1">&#39;ring&#39;</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">RingTopology</span><span class="p">(</span><span class="n">Topology</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One-peer ring topology where each node communicates with one of its left and right \</span>
+<span class="sd">        neighbors (by index) in each iteration. The weights are 0.5 for each neighbor.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">_get_topo_edges</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Edge</span><span class="p">]]:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span> <span class="o">%</span> <span class="mi">2</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s1">&#39;Ring topology is not supported for odd world size&#39;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">()</span>
+
+        <span class="n">edges</span> <span class="o">=</span> <span class="p">[[],</span> <span class="p">[]]</span>
+        <span class="c1"># Odd iterations</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span><span class="p">,</span> <span class="mi">2</span><span class="p">):</span>
+            <span class="n">edges</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Edge</span><span class="p">(</span>
+                <span class="n">ranks</span><span class="o">=</span><span class="nb">sorted</span><span class="p">([</span><span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span><span class="p">]),</span>
+                <span class="n">weight</span><span class="o">=</span><span class="mf">0.5</span>
+            <span class="p">))</span>
+        <span class="c1"># Even iterations</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span><span class="p">,</span> <span class="mi">2</span><span class="p">):</span>
+            <span class="n">edges</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Edge</span><span class="p">(</span>
+                <span class="n">ranks</span><span class="o">=</span><span class="nb">sorted</span><span class="p">([</span><span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">i</span> <span class="o">-</span> <span class="mi">1</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span><span class="p">)</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_size</span><span class="p">]),</span>
+                <span class="n">weight</span><span class="o">=</span><span class="mf">0.5</span>
+            <span class="p">))</span>
+        <span class="k">return</span> <span class="n">edges</span>
+</pre></div>
+</div>
+<p>Please refer to the <cite>decent_dp.topo</cite> module for more details.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="schema.html" class="btn btn-neutral float-left" title="Algorithm schemas" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="benchmark.html" class="btn btn-neutral float-right" title="Benchmark tests" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Zesen Wang.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
