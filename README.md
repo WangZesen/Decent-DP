@@ -104,6 +104,8 @@ Launch the script on multiple processes/nodes using [`torchrun`](https://pytorch
 
 ## 📖 Documentation
 
+Code of experiments conducted in the paper: 	🔍 **[WangZesen/Decentralized-Training-Exp](https://github.com/WangZesen/Decentralized-Training-Exp)**
+
 Comprehensive documentation, including tutorials, API references, and performance tips, is available on the Github page: **[Decent-DP Documentation](https://wangzesen.github.io/Decent-DP)**
 
 
