@@ -111,9 +111,9 @@ To help you get the most out of Decent-DP, we've organized our documentation int
 
 1. **[Getting Started](getting_started.md)** - Installation and basic usage
 2. **Tutorials**:
-   - **[Decentralized Data Parallel](tutorials/ddp.md)** - Detailed guide on using the core DDP implementation
-   - **[Topology Design](tutorials/topology.md)** - Understanding different communication topologies
-   - **[Custom Optimizers](tutorials/custom_optimizers.md)** - Creating optimizer functions compatible with Decent-DP
+    - **[Decentralized Data Parallel](tutorials/ddp.md)** - Detailed guide on using the core DDP implementation
+    - **[Topology Design](tutorials/topology.md)** - Understanding different communication topologies
+    - **[Custom Optimizers](tutorials/custom_optimizers.md)** - Creating optimizer functions compatible with Decent-DP
 3. **[Benchmarks](benchmarks.md)** - Performance comparisons and hardware requirements
 4. **[API Reference](api.md)** - Detailed API documentation for all modules
 
@@ -122,7 +122,7 @@ To help you get the most out of Decent-DP, we've organized our documentation int
 If you find this repository helpful, please consider citing the following paper:
 
 ```bibtex
-@inproceedings{wang2024promise,
+@inproceedings{wang2025promise,
     title={From Promise to Practice: Realizing High-performance Decentralized Training},
     author={Zesen Wang, Jiaojiao Zhang, Xuyang Wu, and Mikael Johansson},
     booktitle={International Conference on Learning Representations},

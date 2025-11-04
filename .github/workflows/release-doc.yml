@@ -1,0 +1,24 @@
+name: Build/Publish Develop Docs 
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+      - name: Setup Docs Deploy
+        run: |
+          git config --global user.name "Zesen Wang"
+          git config --global user.email "zesen@kth.se"
+      - name: Build Docs Website
+        run: |
+          git fetch origin gh-pages --depth=1
+          uv run --group doc mike deploy --update-aliases ${{ github.event.release.tag_name }} latest
+          uv run --group doc mike set-default latest --push

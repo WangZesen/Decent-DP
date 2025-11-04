@@ -8,7 +8,7 @@
 [![PyTorch Extension](https://img.shields.io/badge/PyTorch-Extension-brightgreen.svg)](https://pytorch.org/)
 
 <p align="center">
-  <img src="./doc/source/_static/icon-light.png" alt="Icon created by zero_wing - Flaticon"/>
+  <img src="https://github.com/WangZesen/Decent-DP/blob/76c157d9b79c2ec83d692012da32c8f4998fc031/docs/images/logo-light.png?raw=True"/>
 </p>
 
 ## ✨ Key Features

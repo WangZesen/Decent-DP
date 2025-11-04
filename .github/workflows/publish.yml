@@ -1,0 +1,58 @@
+name: Publish package to PyPI
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Extract tag version
+        id: tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          echo "TAG_VERSION=$TAG_VERSION" >> $GITHUB_ENV
+          echo "Release tag version: $TAG_VERSION"
+
+      - name: Check version in pyproject.toml matches tag
+        run: |
+          FILE_VERSION=$(grep -E '^version\s*=' pyproject.toml | sed -E 's/version\s*=\s*"([^"]+)"/\1/')
+          echo "Detected version in pyproject.toml: $FILE_VERSION"
+          echo "Tag version: $TAG_VERSION"
+          if [ "$FILE_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error ::Version mismatch! pyproject.toml ($FILE_VERSION) != tag ($TAG_VERSION)"
+            exit 1
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Build
+        run: uv build
+
+      - name: Publish to PyPI
+        run: uv publish
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "Publishing failed. Rolling back the release."
+          gh release delete "$GITHUB_REF_NAME" --yes || echo "No release to delete."
+          git push origin :refs/tags/"$GITHUB_REF_NAME" || echo "No tag to delete."
+          echo "Rollback completed."
+
+      - name: Confirm success
+        if: success()
+        run: echo "Package published successfully!"
