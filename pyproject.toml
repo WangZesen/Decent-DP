@@ -1,32 +1,47 @@
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "decent-dp"
-version = "0.1.2"
-authors = [
-  { name="Zesen Wang", email="zesen@kth.se" },
-]
+version = "0.2.0"
 description = "A PyTorch extension for training neural networks with decentralized training"
 readme = "README.md"
-requires-python = ">=3.11"
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
-]
-license = {file = "LICENSE"}
+requires-python = ">=3.9, <3.14"
 dependencies = [
+    "loguru>=0.7.3",
     "torch>=2.1.0",
-    "loguru>=0.7.0"
 ]
-optional-dependencies = {"test" = [
-  "tqdm>=4.66.0"
-]}
+keywords = ["pytorch", "decentralized", "deep learning", "neural networks"]
+authors = [
+    { name = "Wang Zesen", email = "zesen@kth.se" }
+]
+license = { text = "MIT" }
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+
+[build-system]
+requires = ["uv_build>=0.9.6,<0.10.0"]
+build-backend = "uv_build"
+
 
 [project.urls]
 Homepage = "https://github.com/WangZesen/Decent-DP"
 Documentation = "https://wangzesen.github.io/Decent-DP/"
 Issues = "https://github.com/WangZesen/Decent-DP/issues"
 Repository = "https://github.com/WangZesen/Decent-DP"
+
+
+[dependency-groups]
+doc = [
+    "mike>=2.1.3",
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.6.23",
+    "mkdocstrings[python]>=0.30.1",
+]
+test = [
+    "torchvision>=0.23.0",
+    "tqdm>=4.67.1",
+]

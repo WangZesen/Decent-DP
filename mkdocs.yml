@@ -1,0 +1,90 @@
+site_name: Decent-DP Documentation
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tabs
+    - content.code.copy
+    - version
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+
+markdown_extensions:
+  - pymdownx.arithmatex:
+      generic: true
+
+
+extra_javascript:
+  - js/dark-mode-images.js
+  - js/katex.js
+  - https://unpkg.com/katex@0/dist/katex.min.js
+  - https://unpkg.com/katex@0/dist/contrib/auto-render.min.js
+
+
+extra_css:
+  - https://unpkg.com/katex@0/dist/katex.min.css
+
+
+markdown_extensions:
+  - admonition
+  - codehilite
+  - pymdownx.arithmatex:
+      generic: true
+      inline_syntax: ['$', '$']
+  - pymdownx.highlight:
+      use_pygments: true
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: ["src"]
+          options:
+            show_root_heading: true
+            show_source: true
+            show_docstring_description: true
+            members_order: source
+  - mike:
+      alias_type: symlink
+      redirect_template: null
+      deploy_prefix: ''
+      canonical_version: null
+      version_selector: true
+      css_dir: css
+      javascript_dir: js
+
+
+nav:
+  - Home: index.md
+  - Getting Started: getting_started.md
+  - Tutorials:
+      - Decentralized Data Parallel: tutorials/ddp.md
+      - Topology Design: tutorials/topology.md
+      - Custom Optimizers: tutorials/custom_optimizers.md
+  - Benchmark: benchmarks.md
+  - API Reference: api.md
+
+
+extra:
+  version:
+    provider: mike

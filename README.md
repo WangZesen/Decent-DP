@@ -55,50 +55,78 @@ pip install -e .
 
 ## 🚀 Quickstart
 
-Here is a pseudocode exmaple of how to use Decent-DP to train a model
+Here is a complete example of how to use Decent-DP to train a model:
 
 ```python
+import torch
+import torch.nn as nn
+import torch.distributed as dist
+from decent_dp.ddp import DecentralizedDataParallel as DecentDP
+from decent_dp.optim import optim_fn_adamw
+from decent_dp.utils import initialize_dist
 
-  import torch.distributed as dist
-  from decent_dp.ddp import DecentralizedDataParallel as DecentDP
+# Initialize distributed environment
+rank, world_size = initialize_dist()
 
-  # Initialize process group
-  dist.init_process_group(backend='nccl' if torch.cuda.is_available() else 'gloo', init_method='env://')
+# Create your model
+model = nn.Sequential(
+    nn.Linear(10, 50),
+    nn.ReLU(),
+    nn.Linear(50, 1)
+).cuda()
 
-  # Initialize model (move to device before wrapping with DecentDP)
-  model = ...
-  model = model.to(device)
+# Wrap model with DecentDP
+model = DecentDP(
+    model,
+    optim_fn=optim_fn_adamw,  # or your custom optimizer function
+    topology="complete"      # or "ring", "one-peer-exp", "alternating-exp-ring"
+)
 
-  # Wrap model with DecentDP
-  model = DecentDP(model,
-                    # optimizer constructor function which takes List[Tuple[str, Tensor]] as input and returns an optimizer
-                    # examples could be found in `decent_dp.optim` module
-                    optim_fn=<optimizer constructor function>,
-                    # lr scheduler constructor function which takes an optimizer as input and returns a lr scheduler.
-                    # None if no lr scheduler is used
-                    # examples could be found in `decent_dp.optim` module
-                    lr_scheduler_fn=<lr scheduler constructor function>,
-                    # topology of the network which is a string
-                    # supported topologies are 'ring', 'exp', 'complete', 'alternating-exp-ring'
-                    # see Section `Communication topology` for more details
-                    topology=<topology>)
-  
-  # Training loop
-  for epoch in range(num_epochs):
-      model.train()
-      for batch in data_loader:
-          loss = model(batch)
-          model.zero_grad()
-          loss.backward()
-          # no need for optimizer.step() as it is handled by DecentDP
-
-      model.eval()
-      for batch in val_data_loader:
-          with torch.no_grad():
-              loss = model(batch)
+# Training loop
+for epoch in range(num_epochs):
+    model.train()
+    for batch_idx, (data, target) in enumerate(train_loader):
+        data, target = data.cuda(), target.cuda()
+        output = model(data)
+        loss = nn.functional.mse_loss(output, target)
+        
+        # Zero gradients, backward pass
+        model.zero_grad()
+        loss.backward()
+        # Note: optimizer.step() is automatically called by DecentDP
+        
+    # Evaluation
+    model.eval()
+    with torch.no_grad():
+        for data, target in val_loader:
+            data, target = data.cuda(), target.cuda()
+            output = model(data)
+            val_loss = nn.functional.mse_loss(output, target)
 ```
 
-Launch the script on multiple processes/nodes using [`torchrun`](https://pytorch.org/docs/stable/elastic/run.html).
+Launch the script on multiple processes/nodes using [`torchrun`](https://pytorch.org/docs/stable/elastic/run.html):
+
+```bash
+torchrun --nproc_per_node=4 your_training_script.py
+```
+
+## 📚 Key Concepts
+
+### Decentralized Training
+Unlike traditional centralized approaches where all workers communicate with a single parameter server, decentralized training allows workers to communicate directly with their neighbors. This eliminates bottlenecks and improves scalability.
+
+### Communication Topologies
+Decent-DP supports various communication patterns:
+- **Complete**: All workers communicate with each other in each iteration
+- **Ring**: Workers form a ring and communicate with their immediate neighbors
+- **One-Peer Exponential**: Workers communicate with peers at exponentially increasing distances
+- **Alternating Exponential-Ring**: Alternates between exponential and ring communication patterns
+
+### Parameter Bucketing
+Decent-DP automatically groups model parameters into buckets based on size, optimizing communication efficiency during training.
+
+### Gradient Accumulation
+The framework handles gradient accumulation seamlessly, making it easy to simulate larger batch sizes across multiple workers.
 
 
 
@@ -115,11 +143,11 @@ If you use Decent-DP in your research, please cite our work:
 
 
 ```bibtex
-@article{wang2024decentralized,
+@article{wang2025decentralized,
   title={From Promise to Practice: Realizing High-Performance Decentralized Training},
   author={Wang, Zesen and Zhang, Jiaojiao and Wu, Xuyang and Johansson, Mikael},
   journal={arXiv preprint arXiv:2410.11998},
-  year={2024}
+  year={2025}
 }
 ```
 
@@ -149,4 +177,3 @@ The computations and storage resources were enabled by resources provided by the
 ---
 
 🚀 Happy training with Decent-DP!
-

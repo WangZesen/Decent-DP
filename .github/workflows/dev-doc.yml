@@ -1,0 +1,21 @@
+name: Build/Publish Develop Docs 
+on:
+  push:
+    branches:
+      - main
+permissions:
+  contents: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@latest
+      - name: Install uv
+        uses: astral-sh/setup-uv@latest
+      - name: Setup Docs Deploy
+        run: |
+          git config --global user.name "Zesen Wang"
+          git config --global user.email "zesen@kth.se"
+      - name: Build Docs Website
+        run: uv run --group doc mike deploy --push develop
