@@ -18,4 +18,6 @@ jobs:
           git config --global user.name "Zesen Wang"
           git config --global user.email "zesen@kth.se"
       - name: Build Docs Website
-        run: uv run --group doc mike deploy --push develop
+        run: |
+          git fetch origin gh-pages --depth=1
+          uv run --group doc mike deploy --push develop
