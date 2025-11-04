@@ -10,9 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@latest
+        uses: actions/checkout@v5
       - name: Install uv
-        uses: astral-sh/setup-uv@latest
+        uses: astral-sh/setup-uv@v7
       - name: Setup Docs Deploy
         run: |
           git config --global user.name "Zesen Wang"
