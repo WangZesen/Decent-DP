@@ -1,6 +1,6 @@
 [project]
 name = "decent-dp"
-version = "0.2.0"
+version = "0.2.1"
 description = "A PyTorch extension for training neural networks with decentralized training"
 readme = "README.md"
 requires-python = ">=3.9, <3.14"

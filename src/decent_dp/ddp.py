@@ -114,6 +114,7 @@ class DecentralizedDataParallel(Module):
         self._param_blocks: List[Tensor] = []
         self._comm_buffers: List[List[Tensor]] = []
         self._comm_blocks: List[Tensor] = []
+        self._param_backups: List[Tensor] = []
 
         # Optimizer and LR scheduler
         self._optims: List[Optimizer] = []
@@ -499,14 +500,24 @@ class DecentralizedDataParallel(Module):
     """Utility functions"""
 
     @torch.no_grad()
-    def global_avg(self):
-        """Perform global average on the parameters (and buffers if sync_buffer_in_global_avg is True)
-        The function is called at the end of the training loop to synchronize the parameters across all nodes for evaluation
+    def global_avg(self, will_revert=True):
+        """Perform global average of the model parameters across all workers
+        
+        Args:
+            will_revert (bool, optional): Whether to backup the parameters for reverting. Defaults to True.
         """
         for op in self._comm_ops:
             if op is not None:
                 op.wait()
-        self._comm_ops = [None for _ in range(len(self._param_buckets))]
+        if not will_revert:
+            self._comm_ops = [None for _ in range(len(self._param_buckets))]
+        
+        if will_revert:
+            if len(self._param_backups) == 0:
+                for i in range(len(self._params)):
+                    self._param_backups.append(self._params[i].data.detach().clone())
+            else:
+                torch._foreach_copy_(self._param_backups, [x.data for x in self._params])
 
         if self._param_as_bucket_view:
             torch._foreach_div_(self._param_blocks, self._world_size)
@@ -523,6 +534,13 @@ class DecentralizedDataParallel(Module):
                 if x.dtype in self.FLOAT_DTYPES:
                     dist.all_reduce(x.data, op=dist.ReduceOp.SUM)
                     x.data.div_(self._world_size)
+
+    @torch.no_grad()
+    def revert_global_avg(self):
+        """Revert the parameters to the state before global average"""
+        if len(self._param_backups) == 0:
+            raise RuntimeError("No backup found for reverting global average")
+        torch._foreach_copy_( [x.data for x in self._params], self._param_backups)
 
 
 __all__ = ["DecentralizedDataParallel", "OPTIM_FN_TYPE", "LR_SCHEDULER_FN_TYPE"]
