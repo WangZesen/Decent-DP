@@ -135,6 +135,9 @@ class DecentralizedDataParallel(Module):
         # flag for initializing the parameters
         self._initialized: bool = False
 
+        # adaptive factor
+        self._adaptive_factor: float = 1.0
+
     def _check_channels_last(self) -> bool:
         """Check if the model is with "channels_last" memory format
 
@@ -220,11 +223,11 @@ class DecentralizedDataParallel(Module):
 
             # replace the local model with the mixed model
             if self._param_as_bucket_view:
-                self._param_blocks[bucket_id].mul_(weight - (1 - weight) / (len(edge.ranks) - 1))
-                self._param_blocks[bucket_id].add_(self._comm_blocks[bucket_id])
+                self._param_blocks[bucket_id].mul_((1 - self._adaptive_factor) + self._adaptive_factor * (weight - (1 - weight) / (len(edge.ranks) - 1)))
+                self._param_blocks[bucket_id].add_(self._comm_blocks[bucket_id], alpha=self._adaptive_factor)
             else:
-                torch._foreach_mul_(self._param_buckets[bucket_id], weight - (1 - weight) / (len(edge.ranks) - 1))
-                torch._foreach_add_(self._param_buckets[bucket_id], self._comm_buffers[bucket_id])
+                torch._foreach_mul_(self._param_buckets[bucket_id], (1 - self._adaptive_factor) + self._adaptive_factor * (weight - (1 - weight) / (len(edge.ranks) - 1)))
+                torch._foreach_add_(self._param_buckets[bucket_id], self._comm_buffers[bucket_id], alpha=self._adaptive_factor)
 
         # perform local update
         if self._scaler:
@@ -541,6 +544,33 @@ class DecentralizedDataParallel(Module):
         if len(self._param_backups) == 0:
             raise RuntimeError("No backup found for reverting global average")
         torch._foreach_copy_( [x.data for x in self._params], self._param_backups)
+
+
+    @torch.no_grad()
+    def get_lr(self) -> float:
+        """
+        Get the current learning rate from the first learning rate scheduler
+
+        Returns:
+            float: Current learning rate
+        """
+        if self._initialized:
+            scheduler = self._lr_schedulers[0]
+            assert scheduler is not None, "No learning rate scheduler is defined"
+            return scheduler.get_last_lr()[0]
+        else:
+            return 0.0
+
+
+    @torch.no_grad()
+    def set_adaptive_factor(self, factor: float):
+        """Set the adaptive factor for scaling the model parameters during communication
+
+        Args:
+            factor (float): Adaptive factor
+        """
+        self._adaptive_factor = factor
+
 
 
 __all__ = ["DecentralizedDataParallel", "OPTIM_FN_TYPE", "LR_SCHEDULER_FN_TYPE"]

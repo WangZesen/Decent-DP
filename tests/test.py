@@ -61,6 +61,8 @@ for epoch in range(20):
     model.train()
     avg_loss = 0.0
     avg_acc = 0.0
+    if epoch + 1 >= 15:
+        model.set_adaptive_factor(0.1)
     with tqdm(train_ds, desc=f"Epoch {epoch + 1}", disable=rank != 0) as t:
         for step, (data, target) in enumerate(t):
             data = data.to(device)
