@@ -76,7 +76,7 @@ for epoch in range(20):
     if rank == 0:
         logger.info(f"Training loss: {avg_loss / len(train_ds):.5f}, accuracy: {avg_acc / len(train_ds):.5f}")
 
-    model.global_avg(will_revert=True)
+    d2c = model.global_avg(will_revert=True, return_d2c=True)
 
     with torch.no_grad():
         model.eval()
@@ -90,6 +90,6 @@ for epoch in range(20):
             avg_loss += loss.item()
             avg_acc += (output.argmax(1) == target).float().mean().item()
         if rank == 0:
-            logger.info(f"Validation loss: {avg_loss / len(valid_ds):.5f}, accuracy: {avg_acc / len(valid_ds):.5f}")
+            logger.info(f"D2C: {d2c:.4f}, Validation loss: {avg_loss / len(valid_ds):.5f}, accuracy: {avg_acc / len(valid_ds):.5f}")
 
     model.revert_global_avg()

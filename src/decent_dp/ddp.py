@@ -223,11 +223,20 @@ class DecentralizedDataParallel(Module):
 
             # replace the local model with the mixed model
             if self._param_as_bucket_view:
-                self._param_blocks[bucket_id].mul_((1 - self._adaptive_factor) + self._adaptive_factor * (weight - (1 - weight) / (len(edge.ranks) - 1)))
+                self._param_blocks[bucket_id].mul_(
+                    (1 - self._adaptive_factor)
+                    + self._adaptive_factor * (weight - (1 - weight) / (len(edge.ranks) - 1))
+                )
                 self._param_blocks[bucket_id].add_(self._comm_blocks[bucket_id], alpha=self._adaptive_factor)
             else:
-                torch._foreach_mul_(self._param_buckets[bucket_id], (1 - self._adaptive_factor) + self._adaptive_factor * (weight - (1 - weight) / (len(edge.ranks) - 1)))
-                torch._foreach_add_(self._param_buckets[bucket_id], self._comm_buffers[bucket_id], alpha=self._adaptive_factor)
+                torch._foreach_mul_(
+                    self._param_buckets[bucket_id],
+                    (1 - self._adaptive_factor)
+                    + self._adaptive_factor * (weight - (1 - weight) / (len(edge.ranks) - 1)),
+                )
+                torch._foreach_add_(
+                    self._param_buckets[bucket_id], self._comm_buffers[bucket_id], alpha=self._adaptive_factor
+                )
 
         # perform local update
         if self._scaler:
@@ -503,19 +512,20 @@ class DecentralizedDataParallel(Module):
     """Utility functions"""
 
     @torch.no_grad()
-    def global_avg(self, will_revert=True):
+    def global_avg(self, will_revert: bool = True, return_d2c: bool = False) -> Optional[float]:
         """Perform global average of the model parameters across all workers
-        
+
         Args:
             will_revert (bool, optional): Whether to backup the parameters for reverting. Defaults to True.
+            return_d2c (bool, optional): Whether to return the distance to center. Defaults to False.
         """
         for op in self._comm_ops:
             if op is not None:
                 op.wait()
         if not will_revert:
             self._comm_ops = [None for _ in range(len(self._param_buckets))]
-        
-        if will_revert:
+
+        if will_revert or return_d2c:
             if len(self._param_backups) == 0:
                 for i in range(len(self._params)):
                     self._param_backups.append(self._params[i].data.detach().clone())
@@ -538,13 +548,19 @@ class DecentralizedDataParallel(Module):
                     dist.all_reduce(x.data, op=dist.ReduceOp.SUM)
                     x.data.div_(self._world_size)
 
+        if return_d2c:
+            return torch.norm(
+                torch.stack(
+                    torch._foreach_norm(torch._foreach_sub([x.data for x in self._params], self._param_backups))
+                )
+            ).item()
+
     @torch.no_grad()
     def revert_global_avg(self):
         """Revert the parameters to the state before global average"""
         if len(self._param_backups) == 0:
             raise RuntimeError("No backup found for reverting global average")
-        torch._foreach_copy_( [x.data for x in self._params], self._param_backups)
-
+        torch._foreach_copy_([x.data for x in self._params], self._param_backups)
 
     @torch.no_grad()
     def get_lr(self) -> float:
@@ -561,7 +577,6 @@ class DecentralizedDataParallel(Module):
         else:
             return 0.0
 
-
     @torch.no_grad()
     def set_adaptive_factor(self, factor: float):
         """Set the adaptive factor for scaling the model parameters during communication
@@ -570,7 +585,6 @@ class DecentralizedDataParallel(Module):
             factor (float): Adaptive factor
         """
         self._adaptive_factor = factor
-
 
 
 __all__ = ["DecentralizedDataParallel", "OPTIM_FN_TYPE", "LR_SCHEDULER_FN_TYPE"]
