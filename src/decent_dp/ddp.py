@@ -452,19 +452,6 @@ class DecentralizedDataParallel(Module):
                     if hasattr(self._optims[i], "pre_average_hook"):
                         self._optims[i].pre_average_hook(edge, weight)  # type: ignore
 
-                    # update parameters and launch the first communication
-                    if self._scaler:
-                        if self._grad_clip_norm > 0:
-                            self._scaler.unscale_(self._optims[i])
-                            torch.nn.utils.clip_grad_norm_(self._param_buckets[i], self._grad_clip_norm)
-                        self._scaler.step(self._optims[i])
-                        if i == len(self._param_buckets) - 1:
-                            self._scaler.update()
-                            # TODO: synchronize the scaler state across all workers?
-                    else:
-                        if self._grad_clip_norm > 0:
-                            torch.nn.utils.clip_grad_norm_(self._param_buckets[i], self._grad_clip_norm)
-                        self._optims[i].step()
                     self._optims[i].zero_grad()
                     if self._lr_schedulers[i] is not None:
                         scheduler = cast(LRScheduler, self._lr_schedulers[i])
